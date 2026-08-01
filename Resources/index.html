@@ -209,6 +209,8 @@
       // Gentle breath glow in the middle band.
       color += vec3(0.030, 0.014, 0.005) * breath * midField;
 
+      color *= 1.15;
+
       outColor = vec4(color, 1.0);
     }
   </script>
