@@ -1,26 +1,460 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rothko</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rothko Music Field</title>
   <style>
-    :root { color-scheme: dark; }
-    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-    body {
-      background: #21132d;
-      background-image:
-        radial-gradient(circle at 25% 30%, rgba(234, 106, 70, .95), transparent 42%),
-        radial-gradient(circle at 75% 65%, rgba(54, 102, 145, .92), transparent 46%),
-        linear-gradient(120deg, #2b183e, #7a3c45 48%, #152d45);
-      background-size: 150% 150%;
-      animation: drift 18s ease-in-out infinite alternate;
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #050403;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    @keyframes drift {
-      from { background-position: 0% 20%; }
-      to { background-position: 100% 80%; }
+
+    canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
     }
+
   </style>
 </head>
-<body aria-label="Animated gradient"></body>
+<body>
+  <canvas id="gl"></canvas>
+
+  <script id="vertex" type="x-shader/x-vertex">#version 300 es
+    precision highp float;
+    in vec2 a_position;
+    out vec2 v_uv;
+
+    void main() {
+      v_uv = a_position * 0.5 + 0.5;
+      gl_Position = vec4(a_position, 0.0, 1.0);
+    }
+  </script>
+
+  <script id="fragment" type="x-shader/x-fragment">#version 300 es
+    precision highp float;
+
+    in vec2 v_uv;
+    out vec4 outColor;
+
+    uniform vec2  u_resolution;
+    uniform float u_time;
+    uniform float u_bass;
+    uniform float u_mid;
+    uniform float u_treble;
+    uniform float u_energy;
+    uniform float u_seed;
+    uniform float u_top_y;
+    uniform float u_mid_y;
+    uniform float u_low_y;
+    uniform float u_top_w;
+    uniform float u_mid_w;
+    uniform float u_low_w;
+    uniform float u_top_h;
+    uniform float u_mid_h;
+    uniform float u_low_h;
+    uniform float u_softness;
+    uniform float u_drift;
+    uniform float u_grain;
+    uniform float u_vignette;
+    uniform vec3 u_base_dark;
+    uniform vec3 u_deep_red;
+    uniform vec3 u_ember;
+    uniform vec3 u_ochre;
+    uniform vec3 u_bruised;
+    uniform vec3 u_smoke_gold;
+
+    // Hash and value noise. Small, cheap, and good enough for a living pigment field.
+    float hash(vec2 p) {
+      p = fract(p * vec2(123.34, 456.21));
+      p += dot(p, p + 45.32);
+      return fract(p.x * p.y);
+    }
+
+    float noise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+
+      float a = hash(i);
+      float b = hash(i + vec2(1.0, 0.0));
+      float c = hash(i + vec2(0.0, 1.0));
+      float d = hash(i + vec2(1.0, 1.0));
+
+      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    }
+
+    float fbm(vec2 p) {
+      float v = 0.0;
+      float a = 0.5;
+      mat2 r = mat2(0.80, -0.60, 0.60, 0.80);
+      for (int i = 0; i < 6; i++) {
+        v += a * noise(p);
+        p = r * p * 2.02 + 17.13;
+        a *= 0.5;
+      }
+      return v;
+    }
+
+    float softRect(vec2 uv, vec2 center, vec2 size, float blur) {
+      vec2 d = abs(uv - center) - size;
+      float outside = length(max(d, 0.0));
+      float inside = min(max(d.x, d.y), 0.0);
+      return 1.0 - smoothstep(0.0, blur, outside + inside);
+    }
+
+    vec3 pigment(vec3 a, vec3 b, float x) {
+      // Slightly nonlinear mixing keeps the colors painterly rather than digitally obedient.
+      x = smoothstep(0.0, 1.0, x);
+      return mix(a * a, b * b, x);
+    }
+
+    void main() {
+      vec2 frag = gl_FragCoord.xy;
+      vec2 uv = frag / u_resolution.xy;
+      vec2 p = uv;
+
+      float aspect = u_resolution.x / u_resolution.y;
+      p.x = (p.x - 0.5) * aspect + 0.5;
+
+      float t = u_time * (0.012 + u_drift * 0.018);
+      float breath = 0.5 + 0.5 * sin(u_time * 0.18 + u_bass * 1.4);
+      float pulse = 0.016 * u_bass + 0.006 * u_mid;
+
+      // Palette: restrained Rothko-like reds, umbers, ochres, and almost-black violet.
+      vec3 baseDark  = u_base_dark;
+      vec3 deepRed   = u_deep_red;
+      vec3 ember     = u_ember;
+      vec3 ochre     = u_ochre;
+      vec3 bruised   = u_bruised;
+      vec3 smokeGold = u_smoke_gold;
+
+      // Slow pigment drift. Audio makes the paint barely wake up.
+      vec2 drift = vec2(
+        fbm(p * (1.4 + u_drift * 0.8) + vec2(t + u_seed, -t * 0.7)),
+        fbm(p * (1.6 + u_drift * 0.9) + vec2(-t * 0.8, t * 0.6 + u_seed))
+      );
+      p += (drift - 0.5) * (0.025 + u_drift * 0.035 + pulse);
+
+      float grainLarge = fbm(p * (3.0 + u_grain * 3.0) + t * 2.0);
+      float grainFine  = noise(frag * (0.55 + u_grain * 0.55) + u_time * 0.25);
+      float paper      = fbm(vec2(uv.x * (1.2 + u_grain), uv.y * (4.0 + u_grain * 3.0)) + vec2(0.0, t));
+
+      vec3 color = pigment(u_base_dark, u_bruised, uv.y * 0.8 + grainLarge * 0.35);
+
+      // Three soft, floating rectangular fields.
+      float topField = softRect(
+        p,
+        vec2(0.50, u_top_y + sin(u_time * 0.035) * 0.008),
+        vec2(u_top_w + pulse, u_top_h + u_mid * 0.010),
+        u_softness
+      );
+
+      float midField = softRect(
+        p,
+        vec2(0.50, u_mid_y + sin(u_time * 0.029 + 1.7) * 0.010),
+        vec2(u_mid_w + u_bass * 0.012, u_mid_h + u_energy * 0.010),
+        u_softness * 1.08
+      );
+
+      float lowField = softRect(
+        p,
+        vec2(0.50, u_low_y + sin(u_time * 0.024 + 3.2) * 0.009),
+        vec2(u_low_w + u_mid * 0.010, u_low_h + u_bass * 0.014),
+        u_softness * 1.12
+      );
+
+      vec3 topColor = pigment(deepRed, ember, 0.35 + grainLarge * 0.55 + u_mid * 0.25);
+      vec3 midColor = pigment(ochre, smokeGold, 0.22 + paper * 0.55 - u_treble * 0.12);
+      vec3 lowColor = pigment(bruised, deepRed, 0.44 + grainLarge * 0.30 + u_bass * 0.20);
+
+      color = mix(color, topColor, topField * 0.70);
+      color = mix(color, midColor, midField * 0.64);
+      color = mix(color, lowColor, lowField * 0.68);
+
+      // Edge darkening gives the whole screen an object-like presence.
+      float vignette = smoothstep(0.96, 0.25, length((uv - 0.5) * vec2(aspect, 1.0)));
+      vignette = mix(1.0, vignette, u_vignette);
+      color *= mix(0.58, 1.08, vignette);
+
+      // Audio should shift the room, not jump on the furniture.
+      color *= 0.92 + 0.18 * u_energy;
+      color += (grainFine - 0.5) * (0.018 + u_grain * 0.040);
+      color += (paper - 0.5) * (0.025 + u_grain * 0.050);
+      color = pow(max(color, 0.0), vec3(0.92));
+
+      // Gentle breath glow in the middle band.
+      color += vec3(0.030, 0.014, 0.005) * breath * midField;
+
+      outColor = vec4(color, 1.0);
+    }
+  </script>
+
+  <script>
+    const canvas = document.getElementById('gl');
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
+
+    if (!gl) {
+      document.body.innerHTML = '<p style="color:white;font:16px system-ui;padding:24px">WebGL2 is not available in this browser.</p>';
+      throw new Error('WebGL2 not available');
+    }
+
+    const vertexSource = document.getElementById('vertex').textContent;
+    const fragmentSource = document.getElementById('fragment').textContent;
+
+    function shader(type, source) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, source);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(s));
+      }
+      return s;
+    }
+
+    const program = gl.createProgram();
+    gl.attachShader(program, shader(gl.VERTEX_SHADER, vertexSource));
+    gl.attachShader(program, shader(gl.FRAGMENT_SHADER, fragmentSource));
+    gl.linkProgram(program);
+
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(program));
+    }
+
+    gl.useProgram(program);
+
+    const quad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1,  1, -1, -1,  1,
+      -1,  1,  1, -1,  1,  1
+    ]), gl.STATIC_DRAW);
+
+    const position = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(position);
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+
+    const uniforms = {
+      resolution: gl.getUniformLocation(program, 'u_resolution'),
+      time: gl.getUniformLocation(program, 'u_time'),
+      bass: gl.getUniformLocation(program, 'u_bass'),
+      mid: gl.getUniformLocation(program, 'u_mid'),
+      treble: gl.getUniformLocation(program, 'u_treble'),
+      energy: gl.getUniformLocation(program, 'u_energy'),
+      seed: gl.getUniformLocation(program, 'u_seed'),
+      topY: gl.getUniformLocation(program, 'u_top_y'),
+      midY: gl.getUniformLocation(program, 'u_mid_y'),
+      lowY: gl.getUniformLocation(program, 'u_low_y'),
+      topW: gl.getUniformLocation(program, 'u_top_w'),
+      midW: gl.getUniformLocation(program, 'u_mid_w'),
+      lowW: gl.getUniformLocation(program, 'u_low_w'),
+      topH: gl.getUniformLocation(program, 'u_top_h'),
+      midH: gl.getUniformLocation(program, 'u_mid_h'),
+      lowH: gl.getUniformLocation(program, 'u_low_h'),
+      softness: gl.getUniformLocation(program, 'u_softness'),
+      drift: gl.getUniformLocation(program, 'u_drift'),
+      grain: gl.getUniformLocation(program, 'u_grain'),
+      vignette: gl.getUniformLocation(program, 'u_vignette'),
+      baseDark: gl.getUniformLocation(program, 'u_base_dark'),
+      deepRed: gl.getUniformLocation(program, 'u_deep_red'),
+      ember: gl.getUniformLocation(program, 'u_ember'),
+      ochre: gl.getUniformLocation(program, 'u_ochre'),
+      bruised: gl.getUniformLocation(program, 'u_bruised'),
+      smokeGold: gl.getUniformLocation(program, 'u_smoke_gold')
+    };
+
+    let audioContext = null;
+    let analyser = null;
+    let frequencyData = null;
+    let sourceNode = null;
+    let audioElement = null;
+
+    const smoothed = {
+      bass: 0,
+      mid: 0,
+      treble: 0,
+      energy: 0
+    };
+
+    // The seed is deliberately continuous: every load and every Space press
+    // can produce a new composition, not just a choice from a finite set.
+    const paletteFamilies = [
+      [[0.055, 0.026, 0.020], [0.42, 0.055, 0.028], [0.76, 0.22, 0.065], [0.86, 0.54, 0.17], [0.12, 0.045, 0.085], [0.62, 0.40, 0.18]],
+      [[0.008, 0.025, 0.018], [0.025, 0.16, 0.08], [0.08, 0.40, 0.18], [0.34, 0.48, 0.18], [0.02, 0.08, 0.065], [0.24, 0.38, 0.18]],
+      [[0.045, 0.018, 0.035], [0.34, 0.06, 0.12], [0.70, 0.18, 0.24], [0.78, 0.46, 0.20], [0.08, 0.035, 0.10], [0.55, 0.28, 0.25]]
+    ];
+
+    const randomBetween = (min, max) => min + Math.random() * (max - min);
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+    function randomizeParams(preferredFamilyIndex = null) {
+      const familyIndex = preferredFamilyIndex === null
+        ? Math.floor(Math.random() * paletteFamilies.length)
+        : preferredFamilyIndex;
+      const family = paletteFamilies[familyIndex];
+      const colors = family.map(color => color.map(channel => clamp(channel + randomBetween(-0.035, 0.035), 0.005, 0.95)));
+      return {
+        seed: randomBetween(0, 1000),
+        topY: randomBetween(0.68, 0.78),
+        midY: randomBetween(0.44, 0.56),
+        lowY: randomBetween(0.20, 0.32),
+        topW: randomBetween(0.35, 0.48),
+        midW: randomBetween(0.38, 0.50),
+        lowW: randomBetween(0.36, 0.49),
+        topH: randomBetween(0.12, 0.19),
+        midH: randomBetween(0.10, 0.17),
+        lowH: randomBetween(0.12, 0.19),
+        softness: randomBetween(0.075, 0.145),
+        drift: randomBetween(0.25, 1.0),
+        grain: randomBetween(0.15, 1.0),
+        vignette: randomBetween(0.55, 1.0),
+        colors
+      };
+    }
+
+    let params = randomizeParams(1);
+    let startedAt = performance.now();
+
+    function applyParams() {
+      gl.uniform1f(uniforms.seed, params.seed);
+      gl.uniform1f(uniforms.topY, params.topY);
+      gl.uniform1f(uniforms.midY, params.midY);
+      gl.uniform1f(uniforms.lowY, params.lowY);
+      gl.uniform1f(uniforms.topW, params.topW);
+      gl.uniform1f(uniforms.midW, params.midW);
+      gl.uniform1f(uniforms.lowW, params.lowW);
+      gl.uniform1f(uniforms.topH, params.topH);
+      gl.uniform1f(uniforms.midH, params.midH);
+      gl.uniform1f(uniforms.lowH, params.lowH);
+      gl.uniform1f(uniforms.softness, params.softness);
+      gl.uniform1f(uniforms.drift, params.drift);
+      gl.uniform1f(uniforms.grain, params.grain);
+      gl.uniform1f(uniforms.vignette, params.vignette);
+      gl.uniform3fv(uniforms.baseDark, params.colors[0]);
+      gl.uniform3fv(uniforms.deepRed, params.colors[1]);
+      gl.uniform3fv(uniforms.ember, params.colors[2]);
+      gl.uniform3fv(uniforms.ochre, params.colors[3]);
+      gl.uniform3fv(uniforms.bruised, params.colors[4]);
+      gl.uniform3fv(uniforms.smokeGold, params.colors[5]);
+    }
+
+    applyParams();
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const width = Math.floor(window.innerWidth * dpr);
+      const height = Math.floor(window.innerHeight * dpr);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        gl.viewport(0, 0, width, height);
+      }
+    }
+
+    window.addEventListener('resize', resize);
+
+    function averageRange(data, from, to) {
+      let sum = 0;
+      let count = 0;
+      const start = Math.max(0, Math.floor(from));
+      const end = Math.min(data.length - 1, Math.floor(to));
+      for (let i = start; i <= end; i++) {
+        sum += data[i];
+        count++;
+      }
+      return count ? sum / count / 255 : 0;
+    }
+
+    function updateAudio() {
+      if (!analyser || !frequencyData) {
+        smoothed.bass *= 0.96;
+        smoothed.mid *= 0.96;
+        smoothed.treble *= 0.96;
+        smoothed.energy *= 0.96;
+        return;
+      }
+
+      analyser.getByteFrequencyData(frequencyData);
+
+      const bass = averageRange(frequencyData, 1, 8);
+      const mid = averageRange(frequencyData, 9, 42);
+      const treble = averageRange(frequencyData, 43, 128);
+      const energy = averageRange(frequencyData, 1, 128);
+
+      const ease = 0.065;
+      smoothed.bass += (bass - smoothed.bass) * ease;
+      smoothed.mid += (mid - smoothed.mid) * ease;
+      smoothed.treble += (treble - smoothed.treble) * ease;
+      smoothed.energy += (energy - smoothed.energy) * ease;
+    }
+
+    async function ensureAudioContext() {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.86;
+        frequencyData = new Uint8Array(analyser.frequencyBinCount);
+      }
+
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+    }
+
+    async function useMicrophone() {
+      await ensureAudioContext();
+      if (sourceNode) sourceNode.disconnect();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      sourceNode = audioContext.createMediaStreamSource(stream);
+      sourceNode.connect(analyser);
+    }
+
+    async function useAudioFile(file) {
+      await ensureAudioContext();
+      if (sourceNode) sourceNode.disconnect();
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.remove();
+      }
+
+      audioElement = document.createElement('audio');
+      audioElement.src = URL.createObjectURL(file);
+      audioElement.loop = true;
+      audioElement.crossOrigin = 'anonymous';
+      audioElement.style.display = 'none';
+      document.body.appendChild(audioElement);
+
+      sourceNode = audioContext.createMediaElementSource(audioElement);
+      sourceNode.connect(analyser);
+      analyser.connect(audioContext.destination);
+      await audioElement.play();
+    }
+
+    function render(now) {
+      resize();
+      updateAudio();
+
+      const time = (now - startedAt) / 1000;
+      gl.uniform2f(uniforms.resolution, canvas.width, canvas.height);
+      gl.uniform1f(uniforms.time, time);
+      gl.uniform1f(uniforms.bass, smoothed.bass);
+      gl.uniform1f(uniforms.mid, smoothed.mid);
+      gl.uniform1f(uniforms.treble, smoothed.treble);
+      gl.uniform1f(uniforms.energy, smoothed.energy);
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      requestAnimationFrame(render);
+    }
+
+    requestAnimationFrame(render);
+  </script>
+</body>
 </html>
