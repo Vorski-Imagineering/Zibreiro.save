@@ -17,19 +17,19 @@
     .test {
       position: absolute;
       top: 50%;
-      left: 0;
+      left: 50%;
       color: #fff;
       font: 900 clamp(72px, 18vw, 260px)/1 -apple-system, BlinkMacSystemFont, sans-serif;
       letter-spacing: 0.08em;
       text-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
-      transform: translate(100vw, -50%);
-      animation: scroll-test 4s linear infinite;
+      transform: translate(-50%, -50%);
+      animation: pulse-test 1s ease-in-out infinite alternate;
       white-space: nowrap;
     }
 
-    @keyframes scroll-test {
-      from { transform: translate(100vw, -50%); }
-      to { transform: translate(-100%, -50%); }
+    @keyframes pulse-test {
+      from { color: #fff; }
+      to { color: #ffea00; }
     }
   </style>
 </head>
