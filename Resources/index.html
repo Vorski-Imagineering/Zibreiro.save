@@ -23,17 +23,20 @@
       letter-spacing: 0.08em;
       text-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
       transform: translate(-50%, -50%);
-      animation: pulse-test 1s ease-in-out infinite alternate;
       white-space: nowrap;
-    }
-
-    @keyframes pulse-test {
-      from { color: #fff; }
-      to { color: #ffea00; }
     }
   </style>
 </head>
 <body>
-  <div class="test">TEST</div>
+  <div class="test" id="test">TEST</div>
+  <script>
+    const test = document.getElementById('test');
+
+    window.renderFrame = function renderFrame(time) {
+      const phase = time * 1.5;
+      test.style.left = `${50 + Math.sin(phase) * 35}%`;
+      test.style.color = Math.sin(phase * 2) > 0 ? '#ffffff' : '#ffea00';
+    };
+  </script>
 </body>
 </html>

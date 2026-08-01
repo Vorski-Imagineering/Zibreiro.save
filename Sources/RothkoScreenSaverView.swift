@@ -5,6 +5,8 @@ import WebKit
 final class RothkoScreenSaverView: ScreenSaverView, WKNavigationDelegate {
     private let webView: WKWebView
     private var hasLoadedBundledHTML = false
+    private var pageIsReady = false
+    private var frameEvaluationIsInFlight = false
 
     override init?(frame: NSRect, isPreview: Bool) {
         webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
@@ -26,6 +28,13 @@ final class RothkoScreenSaverView: ScreenSaverView, WKNavigationDelegate {
     }
 
     override func animateOneFrame() {
+        guard pageIsReady, !frameEvaluationIsInFlight else { return }
+
+        frameEvaluationIsInFlight = true
+        let time = ProcessInfo.processInfo.systemUptime
+        webView.evaluateJavaScript("window.renderFrame && window.renderFrame(\(time))") { [weak self] _, _ in
+            self?.frameEvaluationIsInFlight = false
+        }
     }
 
     override func layout() {
@@ -52,10 +61,16 @@ final class RothkoScreenSaverView: ScreenSaverView, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        pageIsReady = false
         NSLog("Rothko screen saver failed to load bundled HTML: %@", error.localizedDescription)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        pageIsReady = false
         NSLog("Rothko screen saver failed to start bundled HTML: %@", error.localizedDescription)
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        pageIsReady = true
     }
 }
