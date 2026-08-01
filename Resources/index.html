@@ -22,6 +22,22 @@
       display: block;
     }
 
+    body.fallback {
+      background:
+        radial-gradient(ellipse at 50% 28%, rgba(34, 66, 23, 0.95), transparent 42%),
+        radial-gradient(ellipse at 50% 62%, rgba(66, 78, 26, 0.88), transparent 46%),
+        linear-gradient(180deg, #06120a, #17210d 48%, #030603);
+      background-size: 140% 140%;
+      animation: fallback-drift 18s ease-in-out infinite alternate;
+    }
+
+    body.fallback canvas { display: none; }
+
+    @keyframes fallback-drift {
+      from { background-position: 42% 45%; }
+      to { background-position: 58% 55%; }
+    }
+
   </style>
 </head>
 <body>
@@ -201,10 +217,18 @@
     const canvas = document.getElementById('gl');
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: false });
 
-    if (!gl) {
-      document.body.innerHTML = '<p style="color:white;font:16px system-ui;padding:24px">WebGL2 is not available in this browser.</p>';
-      throw new Error('WebGL2 not available');
+    function showFallback() {
+      document.body.classList.add('fallback');
+      canvas.setAttribute('aria-hidden', 'true');
     }
+
+    window.addEventListener('error', (event) => {
+      if (event.error) showFallback();
+    });
+
+    if (!gl) {
+      showFallback();
+    } else {
 
     const vertexSource = document.getElementById('vertex').textContent;
     const fragmentSource = document.getElementById('fragment').textContent;
@@ -455,6 +479,7 @@
     }
 
     requestAnimationFrame(render);
+    }
   </script>
 </body>
 </html>
