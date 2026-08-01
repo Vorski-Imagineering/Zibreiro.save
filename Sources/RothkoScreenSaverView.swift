@@ -71,6 +71,14 @@ final class RothkoScreenSaverView: ScreenSaverView, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        pageIsReady = true
+        pageIsReady = false
+        webView.evaluateJavaScript("window.screenSaverUsesNativeDriver = true; window.resetFrameClock && window.resetFrameClock()") { [weak self] _, error in
+            if let error {
+                NSLog("Rothko screen saver could not enable the native frame driver: %@", error.localizedDescription)
+                return
+            }
+
+            self?.pageIsReady = true
+        }
     }
 }

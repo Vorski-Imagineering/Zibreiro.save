@@ -483,6 +483,20 @@
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     };
+
+    window.resetFrameClock = function resetFrameClock() {
+      firstFrameTime = null;
+    };
+
+    // Opening the local file in a normal browser has no ScreenSaverView timer.
+    // Start a browser driver there; the native host disables it after loading.
+    function browserFrameDriver(timestamp) {
+      if (window.screenSaverUsesNativeDriver) return;
+      window.renderFrame(timestamp / 1000);
+      window.requestAnimationFrame(browserFrameDriver);
+    }
+
+    window.requestAnimationFrame(browserFrameDriver);
     }
   </script>
 </body>
