@@ -211,7 +211,11 @@
 
       color *= 1.15;
 
-      outColor = vec4(color, 1.0);
+      // Stable one-pixel output dithering masks 8-bit gradient quantization.
+      float outputDither = hash(gl_FragCoord.xy + vec2(17.0, 43.0)) - 0.5;
+      color += vec3(outputDither / 255.0);
+
+      outColor = vec4(clamp(color, 0.0, 1.0), 1.0);
     }
   </script>
 
