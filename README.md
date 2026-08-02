@@ -1,6 +1,8 @@
 # Zibreiro macOS Screen Saver
 
-Native macOS `.saver` bundle with a `ScreenSaverView`-driven Metal renderer for the Rothko pigment field.
+A meditative colour wash saver, inspired by a great artist.
+
+Looking forward to pull requests with suggested improvements.
 
 ## Toolchain and compatibility
 
@@ -49,7 +51,7 @@ ditto build/Zibreiro.saver "$HOME/Library/Screen Savers/Zibreiro.saver"
 ## Test locally
 
 1. Open **System Settings → Wallpaper → Screen Saver**.
-2. Select **Zibreiro** in the screen saver list. The preview should show the animated Rothko pigment fields.
+2. Select **Zibreiro** in the screen saver list. The preview should show the animated colour washes.
 3. Use **Preview** or enable the screen saver and wait for it to start. Confirm that the pigment fields continue animating without a blank view.
 4. To inspect the installed bundle and resource:
 
