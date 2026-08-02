@@ -5,24 +5,26 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Rothko</string>
+	<string>Zibreiro</string>
 	<key>CFBundleExecutable</key>
-	<string>Rothko</string>
+	<string>Zibreiro</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.example.Rothko</string>
+	<string>com.example.Zibreiro</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Rothko</string>
+	<string>Zibreiro</string>
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>10</string>
+	<string>25</string>
 	<key>NSPrincipalClass</key>
-	<string>RothkoScreenSaverView</string>
+	<string>ZibreiroScreenSaverView</string>
 	<key>ScreenSaverViewIsPreviewable</key>
 	<true/>
+	<key>ZibreiroAlgorithmVersion</key>
+	<integer>6</integer>
 </dict>
 </plist>

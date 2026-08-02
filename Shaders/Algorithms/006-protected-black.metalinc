@@ -1,0 +1,135 @@
+// Algorithm 006
+// Algorithm 005 with a hue-preserving black point and shadow-gated dithering.
+// Exact black remains exact black instead of receiving positive dither noise.
+
+float hash(float2 p) { p = fract(p * float2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float noise(float2 p) {
+    float2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + float2(1, 0)), f.x), mix(hash(i + float2(0, 1)), hash(i + 1.0), f.x), f.y);
+}
+float fbm(float2 p) {
+    float v = 0.0, a = 0.5; const float2x2 r = float2x2(float2(0.80, -0.60), float2(0.60, 0.80));
+    for (int i = 0; i < 6; ++i) { v += a * noise(p); p = r * p * 2.02 + 17.13; a *= 0.5; }
+    return v;
+}
+float softRect(float2 uv, float2 center, float2 size, float blur) {
+    float2 d = abs(uv - center) - size;
+    return 1.0 - smoothstep(0.0, blur, length(max(d, 0.0)) + min(max(d.x, d.y), 0.0));
+}
+float3 pigment(float3 a, float3 b, float x) {
+    // Algorithm 001 squared both already-dark sRGB endpoints, collapsing most
+    // shadow variation into very few display codes. A 1.35 density exponent
+    // keeps the painted darkness while allocating substantially more range.
+    float3 mixedColor = mix(a, b, smoothstep(0.0, 1.0, x));
+    return pow(max(mixedColor, 0.0), float3(1.35));
+}
+
+fragment float4 pigmentFragment(Raster in [[stage_in]], constant ZibreiroUniforms& u [[buffer(0)]]) {
+    float2 frag = in.position.xy;
+    float2 uv = in.uv;
+    float2 p = uv; float aspect = u.resolutionAndTime.x / u.resolutionAndTime.y;
+    p.x = (p.x - 0.5) * aspect + 0.5;
+    float time = u.resolutionAndTime.z, seed = u.placement.x, driftAmount = u.heightsAndMaterial.w;
+    float t = time * (0.012 + driftAmount * 0.018), breath = 0.5 + 0.5 * sin(time * 0.18);
+    float2 drift = float2(fbm(p * (1.4 + driftAmount * 0.8) + float2(t + seed, -t * 0.7)), fbm(p * (1.6 + driftAmount * 0.9) + float2(-t * 0.8, t * 0.6 + seed)));
+    p += (drift - 0.5) * (0.025 + driftAmount * 0.035);
+    float grain = u.surface.x, grainLarge = fbm(p * (3.0 + grain * 3.0) + t * 2.0);
+    float grainFine = noise(frag * (0.55 + grain * 0.55) + time * 0.25);
+    float paper = fbm(float2(uv.x * (1.2 + grain), uv.y * (4.0 + grain * 3.0)) + float2(0, t));
+    float softness = u.heightsAndMaterial.z;
+    float top = softRect(p, float2(0.5, u.placement.y + sin(time * 0.035) * 0.008), float2(u.widthsAndTopHeight.x, u.widthsAndTopHeight.w), softness);
+    float middle = softRect(p, float2(0.5, u.placement.z + sin(time * 0.029 + 1.7) * 0.010), float2(u.widthsAndTopHeight.y, u.heightsAndMaterial.x), softness * 1.08);
+    float lower = softRect(p, float2(0.5, u.placement.w + sin(time * 0.024 + 3.2) * 0.009), float2(u.widthsAndTopHeight.z, u.heightsAndMaterial.y), softness * 1.12);
+    float vignette = smoothstep(0.96, 0.25, length((uv - 0.5) * float2(aspect, 1.0)));
+
+    // Scenario 2: two generous, independently coloured bands. It is kept as
+    // a branch inside the same full-float pigment pass, so it receives the
+    // exact same protected-black and blue-noise output treatment as Scenario 1.
+    if (u.surface.z >= 0.5) {
+        if (u.surface.z >= 2.5) {
+            // Scenario 4: quiet stacked fields, with irregular painted edges
+            // rather than hard digital divisions.
+            float edgeNoise = (fbm(p * 8.0 + float2(seed, t)) - 0.5) * 0.035;
+            float band1 = smoothstep(0.70 + edgeNoise, 0.75 + edgeNoise, uv.y);
+            float band2 = smoothstep(0.47 + edgeNoise, 0.52 + edgeNoise, uv.y) * (1.0 - band1);
+            float band3 = smoothstep(0.25 + edgeNoise, 0.30 + edgeNoise, uv.y) * (1.0 - band1 - band2);
+            float3 color = pigment(u.baseDark.rgb, u.bruised.rgb, paper * 0.45 + grainLarge * 0.25);
+            color = mix(color, pigment(u.deepRed.rgb, u.ember.rgb, grainLarge), band1);
+            color = mix(color, pigment(u.ochre.rgb, u.smokeGold.rgb, paper), band2);
+            color = mix(color, pigment(u.bruised.rgb, u.deepRed.rgb, grainLarge), band3);
+            color *= mix(0.62, 1.05, mix(1.0, vignette, u.surface.y));
+            color += (grainFine - 0.5) * (0.014 + grain * 0.032) + (paper - 0.5) * 0.030;
+            return float4(clamp(pow(max(color, 0.0), float3(0.92)) * 1.15, 0.0, 1.0), 1.0);
+        }
+
+        if (u.surface.z >= 1.5) {
+            // Scenario 3: a warm/cool horizon. The boundary has a broad,
+            // imperfect brush edge, inspired by the vermilion/ultramarine fields.
+            float horizon = 0.34 + (fbm(float2(uv.x * 3.5, t * 0.35 + seed)) - 0.5) * 0.070;
+            float upperField = smoothstep(horizon - 0.035, horizon + 0.035, uv.y);
+            float upperPaint = fbm(p * (2.1 + grain * 2.0) + float2(seed, t));
+            float lowerPaint = fbm(p * (2.5 + grain * 2.2) + float2(-seed, -t * 0.8));
+            float3 color = pigment(u.bruised.rgb, u.smokeGold.rgb, lowerPaint);
+            color = mix(color, pigment(u.deepRed.rgb, u.ember.rgb, upperPaint), upperField);
+            color *= mix(0.62, 1.07, mix(1.0, vignette, u.surface.y));
+            color += (grainFine - 0.5) * (0.015 + grain * 0.035) + (paper - 0.5) * 0.032;
+            return float4(clamp(pow(max(color, 0.0), float3(0.91)) * 1.16, 0.0, 1.0), 1.0);
+        }
+
+        // Scenario 2 moves on an intentionally unhurried, hour-long cycle.
+        // The seed only offsets the phases, so it feels composed rather than
+        // periodically resetting whenever the animation redraws.
+        constexpr float hourCycle = 6.28318530718 / 3600.0;
+        float slowPhase = time * hourCycle + seed * 0.013;
+        float upperCenter = u.placement.y + sin(slowPhase) * 0.10;
+        float lowerCenter = u.placement.w + sin(slowPhase * 0.83 + 2.1) * 0.08;
+        float upperHeight = u.heightsAndMaterial.x * 1.35 * (1.0 + sin(slowPhase * 0.71 + 0.8) * 0.25);
+        float lowerHeight = u.heightsAndMaterial.y * 1.40 * (1.0 + sin(slowPhase * 0.91 + 3.0) * 0.25);
+        float upperBand = softRect(p, float2(0.5, upperCenter), float2(0.62, upperHeight), softness * 1.35);
+        float lowerBand = softRect(p, float2(0.5, lowerCenter), float2(0.62, lowerHeight), softness * 1.45);
+        float upperMaterial = fbm(p * (3.4 + grain * 2.5) + float2(seed, t * 1.7));
+        float lowerMaterial = fbm(p * (3.1 + grain * 2.8) + float2(-seed * 0.7, -t * 1.5));
+        float3 color = pigment(u.baseDark.rgb, u.bruised.rgb, uv.y * 0.65 + paper * 0.28);
+        color = mix(color, pigment(u.deepRed.rgb, u.ember.rgb, upperMaterial), upperBand * 0.88);
+        color = mix(color, pigment(u.ochre.rgb, u.smokeGold.rgb, lowerMaterial), lowerBand * 0.88);
+        color *= mix(0.60, 1.06, mix(1.0, vignette, u.surface.y));
+        color += (grainFine - 0.5) * (0.016 + grain * 0.035) + (paper - 0.5) * (0.018 + grain * 0.040);
+        color = pow(max(color, 0.0), float3(0.92));
+        color += float3(0.020, 0.010, 0.004) * breath * (upperBand + lowerBand * 0.6);
+        return float4(clamp(color * 1.15, 0.0, 1.0), 1.0);
+    }
+
+    // Scenario 1: the original three-form composition.
+    float3 color = pigment(u.baseDark.rgb, u.bruised.rgb, uv.y * 0.8 + grainLarge * 0.35);
+    color = mix(color, pigment(u.deepRed.rgb, u.ember.rgb, 0.35 + grainLarge * 0.55), top * 0.70);
+    color = mix(color, pigment(u.ochre.rgb, u.smokeGold.rgb, 0.22 + paper * 0.55), middle * 0.64);
+    color = mix(color, pigment(u.bruised.rgb, u.deepRed.rgb, 0.44 + grainLarge * 0.30), lower * 0.68);
+    color *= mix(0.58, 1.08, mix(1.0, vignette, u.surface.y));
+    color += (grainFine - 0.5) * (0.018 + grain * 0.040) + (paper - 0.5) * (0.025 + grain * 0.050);
+    color = pow(max(color, 0.0), float3(0.92));
+    color += float3(0.030, 0.014, 0.005) * breath * middle;
+    return float4(clamp(color * 1.15, 0.0, 1.0), 1.0);
+}
+
+fragment float4 outputFragment(
+    Raster in [[stage_in]],
+    texture2d<float> pigmentTexture [[texture(0)]],
+    texture2d<float> blueNoiseTexture [[texture(1)]]) {
+    uint2 pixel = uint2(in.position.xy);
+    float3 color = pigmentTexture.read(pixel).rgb;
+
+    // Map the lowest six sRGB codes to true black while preserving hue in the
+    // remaining shadows. This is intentionally display-referred, matching the
+    // sRGB-tagged float drawable.
+    constexpr float3 luminanceWeights = float3(0.2126, 0.7152, 0.0722);
+    constexpr float blackPoint = 6.0 / 255.0;
+    float luminance = dot(color, luminanceWeights);
+    float mappedLuminance = max((luminance - blackPoint) / (1.0 - blackPoint), 0.0);
+    color *= luminance > 0.0 ? mappedLuminance / luminance : 0.0;
+
+    uint2 noisePixel = uint2(pixel.x & 127u, pixel.y & 127u);
+    float dither = blueNoiseTexture.read(noisePixel).r - 0.5;
+    float ditherMask = smoothstep(0.0, 16.0 / 255.0, mappedLuminance);
+    color += dither * (4.0 / 255.0) * ditherMask;
+    return float4(clamp(color, 0.0, 1.0), 1.0);
+}

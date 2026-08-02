@@ -1,0 +1,65 @@
+// Algorithm 005
+// Algorithm 004's deterministic isotropic blue-noise texture increased to four
+// output codes peak-to-peak to bridge a nominal 6-bit display step.
+
+float hash(float2 p) { p = fract(p * float2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float noise(float2 p) {
+    float2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + float2(1, 0)), f.x), mix(hash(i + float2(0, 1)), hash(i + 1.0), f.x), f.y);
+}
+float fbm(float2 p) {
+    float v = 0.0, a = 0.5; const float2x2 r = float2x2(float2(0.80, -0.60), float2(0.60, 0.80));
+    for (int i = 0; i < 6; ++i) { v += a * noise(p); p = r * p * 2.02 + 17.13; a *= 0.5; }
+    return v;
+}
+float softRect(float2 uv, float2 center, float2 size, float blur) {
+    float2 d = abs(uv - center) - size;
+    return 1.0 - smoothstep(0.0, blur, length(max(d, 0.0)) + min(max(d.x, d.y), 0.0));
+}
+float3 pigment(float3 a, float3 b, float x) {
+    // Algorithm 001 squared both already-dark sRGB endpoints, collapsing most
+    // shadow variation into very few display codes. A 1.35 density exponent
+    // keeps the painted darkness while allocating substantially more range.
+    float3 mixedColor = mix(a, b, smoothstep(0.0, 1.0, x));
+    return pow(max(mixedColor, 0.0), float3(1.35));
+}
+
+fragment float4 pigmentFragment(Raster in [[stage_in]], constant ZibreiroUniforms& u [[buffer(0)]]) {
+    float2 frag = in.position.xy;
+    float2 uv = in.uv;
+    float2 p = uv; float aspect = u.resolutionAndTime.x / u.resolutionAndTime.y;
+    p.x = (p.x - 0.5) * aspect + 0.5;
+    float time = u.resolutionAndTime.z, seed = u.placement.x, driftAmount = u.heightsAndMaterial.w;
+    float t = time * (0.012 + driftAmount * 0.018), breath = 0.5 + 0.5 * sin(time * 0.18);
+    float2 drift = float2(fbm(p * (1.4 + driftAmount * 0.8) + float2(t + seed, -t * 0.7)), fbm(p * (1.6 + driftAmount * 0.9) + float2(-t * 0.8, t * 0.6 + seed)));
+    p += (drift - 0.5) * (0.025 + driftAmount * 0.035);
+    float grain = u.surface.x, grainLarge = fbm(p * (3.0 + grain * 3.0) + t * 2.0);
+    float grainFine = noise(frag * (0.55 + grain * 0.55) + time * 0.25);
+    float paper = fbm(float2(uv.x * (1.2 + grain), uv.y * (4.0 + grain * 3.0)) + float2(0, t));
+    float softness = u.heightsAndMaterial.z;
+    float top = softRect(p, float2(0.5, u.placement.y + sin(time * 0.035) * 0.008), float2(u.widthsAndTopHeight.x, u.widthsAndTopHeight.w), softness);
+    float middle = softRect(p, float2(0.5, u.placement.z + sin(time * 0.029 + 1.7) * 0.010), float2(u.widthsAndTopHeight.y, u.heightsAndMaterial.x), softness * 1.08);
+    float lower = softRect(p, float2(0.5, u.placement.w + sin(time * 0.024 + 3.2) * 0.009), float2(u.widthsAndTopHeight.z, u.heightsAndMaterial.y), softness * 1.12);
+    float3 color = pigment(u.baseDark.rgb, u.bruised.rgb, uv.y * 0.8 + grainLarge * 0.35);
+    color = mix(color, pigment(u.deepRed.rgb, u.ember.rgb, 0.35 + grainLarge * 0.55), top * 0.70);
+    color = mix(color, pigment(u.ochre.rgb, u.smokeGold.rgb, 0.22 + paper * 0.55), middle * 0.64);
+    color = mix(color, pigment(u.bruised.rgb, u.deepRed.rgb, 0.44 + grainLarge * 0.30), lower * 0.68);
+    float vignette = smoothstep(0.96, 0.25, length((uv - 0.5) * float2(aspect, 1.0)));
+    color *= mix(0.58, 1.08, mix(1.0, vignette, u.surface.y));
+    color += (grainFine - 0.5) * (0.018 + grain * 0.040) + (paper - 0.5) * (0.025 + grain * 0.050);
+    color = pow(max(color, 0.0), float3(0.92));
+    color += float3(0.030, 0.014, 0.005) * breath * middle;
+    return float4(clamp(color * 1.15, 0.0, 1.0), 1.0);
+}
+
+fragment float4 outputFragment(
+    Raster in [[stage_in]],
+    texture2d<float> pigmentTexture [[texture(0)]],
+    texture2d<float> blueNoiseTexture [[texture(1)]]) {
+    uint2 pixel = uint2(in.position.xy);
+    float3 color = pigmentTexture.read(pixel).rgb;
+    uint2 noisePixel = uint2(pixel.x & 127u, pixel.y & 127u);
+    float dither = blueNoiseTexture.read(noisePixel).r - 0.5;
+    color += dither * (4.0 / 255.0);
+    return float4(clamp(color, 0.0, 1.0), 1.0);
+}

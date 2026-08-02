@@ -26,8 +26,8 @@ The native frame bridge is proven to work in both the System Settings selector a
 2. Render directly with Metal without WebKit, HTML, JavaScript, or browser scheduling.
 3. Drive every frame from `ScreenSaverView.animateOneFrame()`.
 4. Render at each display's native backing-pixel resolution.
-5. Perform pigment and gradient calculations in a 16-bit floating-point intermediate texture.
-6. Tone-map and dither the final image into an sRGB display drawable.
+5. Perform pigment and gradient calculations in a 32-bit floating-point intermediate texture. (This supersedes the original 16-bit checkpoint to further reduce banding.)
+6. Preserve the final image in a 16-bit floating-point sRGB drawable and apply stable dither in sRGB output-code space before the legacy host flattens it.
 7. Support the System Settings thumbnail, full-screen Preview, idle activation, and multiple displays.
 8. Keep the implementation small and screen-saver-specific.
 
@@ -60,14 +60,14 @@ No Metal implementation milestone is complete until the `.metal` source compiles
 
 ```text
 Sources/
-  RothkoScreenSaverView.swift
+  ZibreiroScreenSaverView.swift
   MetalRenderer.swift
-  RothkoUniforms.swift
+  ZibreiroUniforms.swift
 Shaders/
-  RothkoShaders.metal
+  ZibreiroShaders.metal
 Supporting Files/
   Info.plist
-RothkoScreenSaver.xcodeproj/
+ZibreiroScreenSaver.xcodeproj/
 build.sh
 ```
 
@@ -75,7 +75,7 @@ build.sh
 
 ## Native view integration
 
-`RothkoScreenSaverView` will own one `MTKView` and one `MetalRenderer`.
+`ZibreiroScreenSaverView` will own one `MTKView` and one `MetalRenderer`.
 
 Required behavior:
 
@@ -112,9 +112,9 @@ The renderer should use a full-screen triangle unless the port demonstrates a re
 ScreenSaverView.animateOneFrame()
   → MTKView.draw()
   → MetalRenderer.draw(in:)
-  → pigment pass into RGBA16Float texture
+  → pigment pass into RGBA32Float texture
   → output pass with tone mapping and dithering
-  → BGRA8Unorm_sRGB drawable
+  → RGBA16Float sRGB-tagged drawable
   → present
 ```
 
@@ -157,19 +157,16 @@ Audio uniforms may remain fixed at zero in the first native version. They should
 
 ## Color and precision pipeline
 
-The pigment pass must render into an offscreen texture using `rgba16Float`.
+The pigment pass renders into an offscreen `rgba32Float` texture so all pigment and gradient calculations remain full precision until the final output pass. This supersedes the initial `rgba16Float` portable baseline.
 
 The output pass must:
 
 1. Read the floating-point pigment result.
 2. Apply any required exposure or tone mapping.
-3. Convert for an sRGB display target.
-4. Add spatially stable, approximately one-output-code-value monochrome dithering.
-5. Clamp and write to `bgra8Unorm_srgb`.
+3. Write display-referred color to an `rgba16Float` drawable tagged as sRGB.
+4. Add spatially stable, high-frequency monochrome dithering at approximately one sRGB output-code value before host compositing.
 
-The dithering pattern should be stable between frames to avoid shimmer. A small embedded blue-noise texture is preferred; a deterministic pixel-coordinate hash is acceptable for the first checkpoint.
-
-The implementation should not assume that a 16-bit drawable is supported by every screen saver host. The portable baseline is a 16-bit offscreen texture followed by an 8-bit sRGB drawable.
+The native target intentionally uses the host-supported 16-bit floating-point drawable. Dithering remains necessary because the legacy screen-saver host may flatten that layer; it must occur in encoded sRGB output-code space rather than linear light.
 
 ## Random composition behavior
 
@@ -198,8 +195,8 @@ The Xcode project must:
 
 - Link `ScreenSaver.framework`, `Metal.framework`, and `MetalKit.framework`.
 - Remove `WebKit.framework` after the Metal checkpoint passes.
-- Compile `RothkoShaders.metal` into the default Metal library.
-- Continue producing `Rothko.saver` with `NSPrincipalClass=RothkoScreenSaverView`.
+- Compile `ZibreiroShaders.metal` into the default Metal library.
+- Continue producing `Zibreiro.saver` with `NSPrincipalClass=ZibreiroScreenSaverView`.
 - Preserve local ad-hoc signing for development builds.
 
 The command-line build script must compile Metal sources with `xcrun metal`, link them with `xcrun metallib`, and place the resulting library in the bundle resources. Alternatively, it may delegate to `xcodebuild` once full Xcode is installed.

@@ -1,0 +1,74 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+/* Begin PBXBuildFile section */
+ A1000001 /* ZibreiroScreenSaverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000011 /* ZibreiroScreenSaverView.swift */; };
+ A1000002 /* MetalRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000012 /* MetalRenderer.swift */; };
+ A1000003 /* ZibreiroUniforms.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000013 /* ZibreiroUniforms.swift */; };
+ A1000004 /* ZibreiroShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = A1000014 /* ZibreiroShaders.metal */; };
+ A1000005 /* index.html in Resources */ = {isa = PBXBuildFile; fileRef = A1000015 /* index.html */; };
+ A1000006 /* ScreenSaver.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1000017 /* ScreenSaver.framework */; };
+ A1000007 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1000018 /* Metal.framework */; };
+ A1000008 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1000019 /* MetalKit.framework */; };
+ A1000009 /* blue-noise-128.raw in Resources */ = {isa = PBXBuildFile; fileRef = A100001E /* blue-noise-128.raw */; };
+/* End PBXBuildFile section */
+/* Begin PBXFileReference section */
+ A1000010 /* Zibreiro.saver */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Zibreiro.saver; sourceTree = BUILT_PRODUCTS_DIR; };
+ A1000011 /* ZibreiroScreenSaverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZibreiroScreenSaverView.swift; sourceTree = "<group>"; };
+ A1000012 /* MetalRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalRenderer.swift; sourceTree = "<group>"; };
+ A1000013 /* ZibreiroUniforms.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZibreiroUniforms.swift; sourceTree = "<group>"; };
+ A1000014 /* ZibreiroShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = ZibreiroShaders.metal; sourceTree = "<group>"; };
+ A1000015 /* index.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = index.html; sourceTree = "<group>"; };
+ A1000016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+ A1000017 /* ScreenSaver.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ScreenSaver.framework; path = System/Library/Frameworks/ScreenSaver.framework; sourceTree = SDKROOT; };
+ A1000018 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+ A1000019 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+ A100001A /* 001-webgl-srgb-dither.metalinc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = "001-webgl-srgb-dither.metalinc"; sourceTree = "<group>"; };
+ A100001B /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+ A100001C /* 002-shadow-range.metalinc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = "002-shadow-range.metalinc"; sourceTree = "<group>"; };
+ A100001D /* 003-six-bit-display-dither.metalinc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = "003-six-bit-display-dither.metalinc"; sourceTree = "<group>"; };
+ A100001E /* blue-noise-128.raw */ = {isa = PBXFileReference; lastKnownFileType = file; path = "blue-noise-128.raw"; sourceTree = "<group>"; };
+ A100001F /* 004-blue-noise-texture.metalinc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = "004-blue-noise-texture.metalinc"; sourceTree = "<group>"; };
+ A1000021 /* 005-four-code-blue-noise.metalinc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = "005-four-code-blue-noise.metalinc"; sourceTree = "<group>"; };
+ A1000022 /* 006-protected-black.metalinc */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = "006-protected-black.metalinc"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+/* Begin PBXFrameworksBuildPhase section */
+ A1000020 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A1000006 /* ScreenSaver.framework in Frameworks */, A1000007 /* Metal.framework in Frameworks */, A1000008 /* MetalKit.framework in Frameworks */); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+/* Begin PBXGroup section */
+ A1000030 = {isa = PBXGroup; children = (A1000031 /* Sources */, A1000032 /* Shaders */, A1000033 /* Resources */, A1000034 /* Supporting Files */, A1000035 /* Products */); sourceTree = "<group>"; };
+ A1000031 /* Sources */ = {isa = PBXGroup; children = (A1000011 /* ZibreiroScreenSaverView.swift */, A1000012 /* MetalRenderer.swift */, A1000013 /* ZibreiroUniforms.swift */); path = Sources; sourceTree = "<group>"; };
+ A1000032 /* Shaders */ = {isa = PBXGroup; children = (A1000014 /* ZibreiroShaders.metal */, A1000036 /* Algorithms */); path = Shaders; sourceTree = "<group>"; };
+ A1000033 /* Resources */ = {isa = PBXGroup; children = (A1000015 /* index.html */, A100001E /* blue-noise-128.raw */); path = Resources; sourceTree = "<group>"; };
+ A1000034 /* Supporting Files */ = {isa = PBXGroup; children = (A1000016 /* Info.plist */); path = "Supporting Files"; sourceTree = "<group>"; };
+ A1000035 /* Products */ = {isa = PBXGroup; children = (A1000010 /* Zibreiro.saver */); name = Products; sourceTree = "<group>"; };
+ A1000036 /* Algorithms */ = {isa = PBXGroup; children = (A100001A /* 001-webgl-srgb-dither.metalinc */, A100001C /* 002-shadow-range.metalinc */, A100001D /* 003-six-bit-display-dither.metalinc */, A100001F /* 004-blue-noise-texture.metalinc */, A1000021 /* 005-four-code-blue-noise.metalinc */, A1000022 /* 006-protected-black.metalinc */, A100001B /* README.md */); path = Algorithms; sourceTree = "<group>"; };
+/* End PBXGroup section */
+/* Begin PBXNativeTarget section */
+ A1000040 /* Zibreiro */ = {isa = PBXNativeTarget; buildConfigurationList = A1000061 /* Build configuration list for PBXNativeTarget "Zibreiro" */; buildPhases = (A1000051 /* Sources */, A1000020 /* Frameworks */, A1000052 /* Resources */); buildRules = (); dependencies = (); name = Zibreiro; productName = Zibreiro; productReference = A1000010 /* Zibreiro.saver */; productType = "com.apple.product-type.bundle"; };
+/* End PBXNativeTarget section */
+/* Begin PBXProject section */
+ A1000041 /* Project object */ = {isa = PBXProject; buildConfigurationList = A1000060 /* Build configuration list for PBXProject "Zibreiro" */; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A1000030; projectDirPath = ""; projectRoot = ""; targets = (A1000040 /* Zibreiro */); };
+/* End PBXProject section */
+/* Begin PBXResourcesBuildPhase section */
+ A1000052 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000005 /* index.html in Resources */, A1000009 /* blue-noise-128.raw in Resources */); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+/* Begin PBXSourcesBuildPhase section */
+ A1000051 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000001 /* ZibreiroScreenSaverView.swift in Sources */, A1000002 /* MetalRenderer.swift in Sources */, A1000003 /* ZibreiroUniforms.swift in Sources */, A1000004 /* ZibreiroShaders.metal in Sources */); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+/* Begin XCBuildConfiguration section */
+ A1000070 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { MACOSX_DEPLOYMENT_TARGET = 15.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
+ A1000071 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { MACOSX_DEPLOYMENT_TARGET = 15.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+ A1000072 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; CODE_SIGNING_ALLOWED = NO; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = "Supporting Files/Info.plist"; INSTALL_PATH = "$(HOME)/Library/Screen Savers"; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@loader_path/../Frameworks"); MACH_O_TYPE = mh_bundle; PRODUCT_BUNDLE_IDENTIFIER = com.example.Zibreiro; PRODUCT_NAME = Zibreiro; SKIP_INSTALL = NO; SWIFT_EMIT_LOC_STRINGS = NO; }; name = Debug; };
+ A1000073 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { CLANG_ENABLE_MODULES = YES; CODE_SIGNING_ALLOWED = NO; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = "Supporting Files/Info.plist"; INSTALL_PATH = "$(HOME)/Library/Screen Savers"; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@loader_path/../Frameworks"); MACH_O_TYPE = mh_bundle; PRODUCT_BUNDLE_IDENTIFIER = com.example.Zibreiro; PRODUCT_NAME = Zibreiro; SKIP_INSTALL = NO; SWIFT_EMIT_LOC_STRINGS = NO; }; name = Release; };
+/* End XCBuildConfiguration section */
+/* Begin XCConfigurationList section */
+ A1000060 /* Build configuration list for PBXProject "Zibreiro" */ = {isa = XCConfigurationList; buildConfigurations = (A1000070 /* Debug */, A1000071 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+ A1000061 /* Build configuration list for PBXNativeTarget "Zibreiro" */ = {isa = XCConfigurationList; buildConfigurations = (A1000072 /* Debug */, A1000073 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+ };
+ rootObject = A1000041 /* Project object */;
+}
