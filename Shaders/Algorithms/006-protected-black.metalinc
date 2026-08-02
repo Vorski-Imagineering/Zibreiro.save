@@ -16,6 +16,27 @@ float softRect(float2 uv, float2 center, float2 size, float blur) {
     float2 d = abs(uv - center) - size;
     return 1.0 - smoothstep(0.0, blur, length(max(d, 0.0)) + min(max(d.x, d.y), 0.0));
 }
+float2 rotate(float2 p, float angle) {
+    float s = sin(angle), c = cos(angle);
+    return float2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
+float sweepEase(float progress, float curve) {
+    if (curve < 0.5) { return progress * progress * (3.0 - 2.0 * progress); }
+    if (curve < 1.5) { return 0.5 - 0.5 * cos(3.14159265359 * progress); }
+    if (curve < 2.5) {
+        return progress < 0.5 ? 4.0 * progress * progress * progress
+            : 1.0 - pow(-2.0 * progress + 2.0, 3.0) * 0.5;
+    }
+    return progress < 0.5 ? 8.0 * pow(progress, 4.0)
+        : 1.0 - pow(-2.0 * progress + 2.0, 4.0) * 0.5;
+}
+// These transport values mirror MetalRenderer.Scenario. Keeping aliases here
+// means shader branches use stable visual slugs rather than ordinal slots.
+constant float originalForms = 0.0;
+constant float twoBands = 1.0;
+constant float warmCoolHorizon = 2.0;
+constant float stackedStrata = 3.0;
+constant float smokyCircle = 4.0;
 float3 pigment(float3 a, float3 b, float x) {
     // Algorithm 001 squared both already-dark sRGB endpoints, collapsing most
     // shadow variation into very few display codes. A 1.35 density exponent
@@ -37,22 +58,88 @@ fragment float4 pigmentFragment(Raster in [[stage_in]], constant ZibreiroUniform
     float grainFine = noise(frag * (0.55 + grain * 0.55) + time * 0.25);
     float paper = fbm(float2(uv.x * (1.2 + grain), uv.y * (4.0 + grain * 3.0)) + float2(0, t));
     float softness = u.heightsAndMaterial.z;
-    float top = softRect(p, float2(0.5, u.placement.y + sin(time * 0.035) * 0.008), float2(u.widthsAndTopHeight.x, u.widthsAndTopHeight.w), softness);
-    float middle = softRect(p, float2(0.5, u.placement.z + sin(time * 0.029 + 1.7) * 0.010), float2(u.widthsAndTopHeight.y, u.heightsAndMaterial.x), softness * 1.08);
-    float lower = softRect(p, float2(0.5, u.placement.w + sin(time * 0.024 + 3.2) * 0.009), float2(u.widthsAndTopHeight.z, u.heightsAndMaterial.y), softness * 1.12);
+    // The non-circle fields share a per-start 10–200 minute vertical round trip. The
+    // signed duration sets its initial direction; a randomly selected easing
+    // curve makes the sweep speed intentionally non-linear.
+    float sweepDuration = max(abs(u.surface.w), 1.0);
+    float sweepCycle = fract(time / sweepDuration);
+    float sweepLeg = sweepCycle < 0.5 ? sweepCycle * 2.0 : (1.0 - sweepCycle) * 2.0;
+    float sweepProgress = sweepEase(sweepLeg, u.motion.x);
+    if (u.surface.w < 0.0) { sweepProgress = 1.0 - sweepProgress; }
+    float warpMargin = 0.025 + driftAmount * 0.035;
+    float topExtent = u.widthsAndTopHeight.w + softness + warpMargin;
+    float middleExtent = u.heightsAndMaterial.x + softness * 1.08 + warpMargin;
+    float lowerExtent = u.heightsAndMaterial.y + softness * 1.12 + warpMargin;
+    float topCenter = mix(topExtent, 1.0 - topExtent, sweepProgress) + sin(time * 0.035) * 0.008;
+    float middleCenter = mix(middleExtent, 1.0 - middleExtent, sweepProgress) + sin(time * 0.029 + 1.7) * 0.010;
+    float lowerCenter = mix(lowerExtent, 1.0 - lowerExtent, sweepProgress) + sin(time * 0.024 + 3.2) * 0.009;
+    topCenter = clamp(topCenter, topExtent, 1.0 - topExtent);
+    middleCenter = clamp(middleCenter, middleExtent, 1.0 - middleExtent);
+    lowerCenter = clamp(lowerCenter, lowerExtent, 1.0 - lowerExtent);
+    float top = softRect(p, float2(0.5, topCenter), float2(u.widthsAndTopHeight.x, u.widthsAndTopHeight.w), softness);
+    float middle = softRect(p, float2(0.5, middleCenter), float2(u.widthsAndTopHeight.y, u.heightsAndMaterial.x), softness * 1.08);
+    float lower = softRect(p, float2(0.5, lowerCenter), float2(u.widthsAndTopHeight.z, u.heightsAndMaterial.y), softness * 1.12);
     float vignette = smoothstep(0.96, 0.25, length((uv - 0.5) * float2(aspect, 1.0)));
 
-    // Scenario 2: two generous, independently coloured bands. It is kept as
-    // a branch inside the same full-float pigment pass, so it receives the
-    // exact same protected-black and blue-noise output treatment as Scenario 1.
-    if (u.surface.z >= 0.5) {
-        if (u.surface.z >= 2.5) {
-            // Scenario 4: quiet stacked fields, with irregular painted edges
+    if (u.surface.z == smokyCircle) {
+            // smoky-circle: a single, deeply blurred circular cloud. Its edge
+            // flutters at a much smaller scale than the 5–30 minute pulse, so
+            // it feels smoky rather than like a geometrically expanding disk.
+            float pulseDuration = max(abs(u.surface.w), 1.0);
+            float pulsePhase = time * (6.28318530718 / pulseDuration) + seed * 0.017;
+            float heartbeat = 0.5 - 0.5 * cos(pulsePhase);
+            heartbeat = heartbeat * heartbeat * (3.0 - 2.0 * heartbeat);
+            float radius = 0.275 + u.widthsAndTopHeight.x * 0.32;
+            radius *= 0.91 + heartbeat * 0.18;
+            float2 centre = float2((u.placement.y - 0.5) * aspect + 0.5, u.placement.z);
+            float2 q = p - centre;
+            float distanceFromCentre = length(q);
+            float angle = atan2(q.y, q.x);
+            // The outer boundary has its own, comparatively lively flow. It
+            // deliberately does not share the smoke field or timing below.
+            float edgeTime = time * (0.037 + driftAmount * 0.031);
+            float edgeFlutter = (fbm(q * 9.0 + float2(seed * 0.21, edgeTime)) - 0.5) * 0.100
+                + sin(angle * 7.0 + edgeTime * 1.8 + seed) * 0.022
+                + sin(angle * 3.0 - edgeTime * 1.1 - seed * 0.4) * 0.013;
+            float softRadius = radius + edgeFlutter;
+            float outerCloud = 1.0 - smoothstep(softRadius - 0.070, softRadius + 0.145, distanceFromCentre);
+
+            // The inside is a separate, slower flow. Avoid using the raw polar
+            // angle as a rotation amount: atan2 jumps at its seam and formerly
+            // made a visible line across the cloud. Integer angular waves wrap
+            // continuously around that seam.
+            float normalizedRadius = distanceFromCentre / max(radius, 0.001);
+            float smokeTime = time * (0.0045 + driftAmount * 0.0065);
+            float spiralWave = sin(angle * 3.0 - normalizedRadius * 8.0 - smokeTime * 1.7)
+                + sin(angle * 5.0 + normalizedRadius * 4.0 + smokeTime * 1.1) * 0.42;
+            float swirl = normalizedRadius * 3.2 + spiralWave * 0.62
+                + (fbm(q * 3.2 + float2(smokeTime, seed)) - 0.5) * 1.1;
+            float2 curlA = rotate(q, swirl) * 4.2;
+            float2 curlB = rotate(q, -swirl * 0.66 + 1.4) * 7.0;
+            float smokeA = fbm(curlA + float2(seed * 0.02, smokeTime * 0.55));
+            float smokeB = fbm(curlB + float2(-smokeTime * 0.42, seed * 0.03));
+            float smoke = clamp(smokeA * 0.62 + smokeB * 0.38, 0.0, 1.0);
+            float curlingAccent = smoothstep(0.46, 0.76, smoke + spiralWave * 0.12);
+            float interior = 1.0 - smoothstep(0.50, 1.16, normalizedRadius);
+            float3 background = pigment(u.baseDark.rgb, u.bruised.rgb, paper * 0.42 + grainLarge * 0.24);
+            float3 primary = pigment(u.deepRed.rgb, u.ember.rgb, smoke);
+            float3 accent = pigment(u.ember.rgb, u.smokeGold.rgb, smokeB);
+            float3 cloud = mix(primary, accent, curlingAccent * 0.68);
+            cloud *= 0.72 + interior * 0.36 + heartbeat * 0.06;
+            float3 color = mix(background, cloud, outerCloud);
+            color *= mix(0.60, 1.06, mix(1.0, vignette, u.surface.y));
+            color += (grainFine - 0.5) * (0.012 + grain * 0.026) + (paper - 0.5) * 0.022;
+            return float4(clamp(pow(max(color, 0.0), float3(0.92)) * 1.15, 0.0, 1.0), 1.0);
+    }
+
+    if (u.surface.z == stackedStrata) {
+            // stacked-strata: quiet fields with irregular painted edges
             // rather than hard digital divisions.
             float edgeNoise = (fbm(p * 8.0 + float2(seed, t)) - 0.5) * 0.035;
-            float band1 = smoothstep(0.70 + edgeNoise, 0.75 + edgeNoise, uv.y);
-            float band2 = smoothstep(0.47 + edgeNoise, 0.52 + edgeNoise, uv.y) * (1.0 - band1);
-            float band3 = smoothstep(0.25 + edgeNoise, 0.30 + edgeNoise, uv.y) * (1.0 - band1 - band2);
+            float strataOffset = (sweepProgress - 0.5) * 0.18;
+            float band1 = smoothstep(0.70 + strataOffset + edgeNoise, 0.75 + strataOffset + edgeNoise, uv.y);
+            float band2 = smoothstep(0.47 + strataOffset + edgeNoise, 0.52 + strataOffset + edgeNoise, uv.y) * (1.0 - band1);
+            float band3 = smoothstep(0.25 + strataOffset + edgeNoise, 0.30 + strataOffset + edgeNoise, uv.y) * (1.0 - band1 - band2);
             float3 color = pigment(u.baseDark.rgb, u.bruised.rgb, paper * 0.45 + grainLarge * 0.25);
             color = mix(color, pigment(u.deepRed.rgb, u.ember.rgb, grainLarge), band1);
             color = mix(color, pigment(u.ochre.rgb, u.smokeGold.rgb, paper), band2);
@@ -60,12 +147,14 @@ fragment float4 pigmentFragment(Raster in [[stage_in]], constant ZibreiroUniform
             color *= mix(0.62, 1.05, mix(1.0, vignette, u.surface.y));
             color += (grainFine - 0.5) * (0.014 + grain * 0.032) + (paper - 0.5) * 0.030;
             return float4(clamp(pow(max(color, 0.0), float3(0.92)) * 1.15, 0.0, 1.0), 1.0);
-        }
+    }
 
-        if (u.surface.z >= 1.5) {
-            // Scenario 3: a warm/cool horizon. The boundary has a broad,
+    if (u.surface.z == warmCoolHorizon) {
+            // warm-cool-horizon: a broad,
             // imperfect brush edge, inspired by the vermilion/ultramarine fields.
-            float horizon = 0.34 + (fbm(float2(uv.x * 3.5, t * 0.35 + seed)) - 0.5) * 0.070;
+            float horizon = mix(0.10, 0.90, sweepProgress)
+                + (fbm(float2(uv.x * 3.5, t * 0.35 + seed)) - 0.5) * 0.070;
+            horizon = clamp(horizon, 0.065, 0.935);
             float upperField = smoothstep(horizon - 0.035, horizon + 0.035, uv.y);
             float upperPaint = fbm(p * (2.1 + grain * 2.0) + float2(seed, t));
             float lowerPaint = fbm(p * (2.5 + grain * 2.2) + float2(-seed, -t * 0.8));
@@ -74,17 +163,21 @@ fragment float4 pigmentFragment(Raster in [[stage_in]], constant ZibreiroUniform
             color *= mix(0.62, 1.07, mix(1.0, vignette, u.surface.y));
             color += (grainFine - 0.5) * (0.015 + grain * 0.035) + (paper - 0.5) * 0.032;
             return float4(clamp(pow(max(color, 0.0), float3(0.91)) * 1.16, 0.0, 1.0), 1.0);
-        }
+    }
 
-        // Scenario 2 moves on an intentionally unhurried, hour-long cycle.
-        // The seed only offsets the phases, so it feels composed rather than
-        // periodically resetting whenever the animation redraws.
+    if (u.surface.z == twoBands) {
+        // two-bands retains its independent breathing, while both bands take
+        // the same eased vertical trip and stay fully inside the frame.
         constexpr float hourCycle = 6.28318530718 / 3600.0;
         float slowPhase = time * hourCycle + seed * 0.013;
-        float upperCenter = u.placement.y + sin(slowPhase) * 0.10;
-        float lowerCenter = u.placement.w + sin(slowPhase * 0.83 + 2.1) * 0.08;
         float upperHeight = u.heightsAndMaterial.x * 1.35 * (1.0 + sin(slowPhase * 0.71 + 0.8) * 0.25);
         float lowerHeight = u.heightsAndMaterial.y * 1.40 * (1.0 + sin(slowPhase * 0.91 + 3.0) * 0.25);
+        float upperExtent = upperHeight + softness * 1.35 + warpMargin;
+        float lowerExtent = lowerHeight + softness * 1.45 + warpMargin;
+        float upperCenter = mix(upperExtent, 1.0 - upperExtent, sweepProgress) + sin(slowPhase) * 0.015;
+        float lowerCenter = mix(lowerExtent, 1.0 - lowerExtent, sweepProgress) + sin(slowPhase * 0.83 + 2.1) * 0.012;
+        upperCenter = clamp(upperCenter, upperExtent, 1.0 - upperExtent);
+        lowerCenter = clamp(lowerCenter, lowerExtent, 1.0 - lowerExtent);
         float upperBand = softRect(p, float2(0.5, upperCenter), float2(0.62, upperHeight), softness * 1.35);
         float lowerBand = softRect(p, float2(0.5, lowerCenter), float2(0.62, lowerHeight), softness * 1.45);
         float upperMaterial = fbm(p * (3.4 + grain * 2.5) + float2(seed, t * 1.7));
@@ -99,7 +192,7 @@ fragment float4 pigmentFragment(Raster in [[stage_in]], constant ZibreiroUniform
         return float4(clamp(color * 1.15, 0.0, 1.0), 1.0);
     }
 
-    // Scenario 1: the original three-form composition.
+    // original-forms: the original three-form composition.
     float3 color = pigment(u.baseDark.rgb, u.bruised.rgb, uv.y * 0.8 + grainLarge * 0.35);
     color = mix(color, pigment(u.deepRed.rgb, u.ember.rgb, 0.35 + grainLarge * 0.55), top * 0.70);
     color = mix(color, pigment(u.ochre.rgb, u.smokeGold.rgb, 0.22 + paper * 0.55), middle * 0.64);
@@ -115,7 +208,12 @@ fragment float4 outputFragment(
     Raster in [[stage_in]],
     texture2d<float> pigmentTexture [[texture(0)]],
     texture2d<float> blueNoiseTexture [[texture(1)]]) {
-    uint2 pixel = uint2(in.position.xy);
+    // The pigment pass is intentionally capped below native 5K/6K drawable
+    // size. Sample it in normalized coordinates rather than indexing it with
+    // the output drawable's pixels, which would otherwise read out of range
+    // and turn the full-screen image black.
+    uint2 pigmentSize = uint2(pigmentTexture.get_width(), pigmentTexture.get_height());
+    uint2 pixel = min(uint2(in.uv * float2(pigmentSize)), pigmentSize - uint2(1));
     float3 color = pigmentTexture.read(pixel).rgb;
 
     // Map the lowest six sRGB codes to true black while preserving hue in the

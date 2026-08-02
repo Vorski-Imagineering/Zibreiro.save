@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Metal
 import MetalKit
+import OSLog
 import QuartzCore
 import ScreenSaver
 
@@ -9,13 +10,17 @@ import ScreenSaver
 final class ZibreiroScreenSaverView: ScreenSaverView {
     private static let previewMaximumDimension: CGFloat = 1024
     private static let saverMaximumDimension: CGFloat = 2560
+    private static let logger = Logger(subsystem: "com.example.Zibreiro", category: "lifecycle")
+    // Stop notifications apply to the dedicated legacy host process, not to
+    // one particular view. New views can arrive during the two-second exit
+    // transition, so they must inherit the process-wide stopping state.
+    private static var processIsStopping = false
+    private static var processExitScheduled = false
 
     private let isPreviewMode: Bool
     private var metalView: MTKView?
     private var renderer: MetalRenderer?
     private var lifecycleObservers: [NSObjectProtocol] = []
-    private var hostIsStopping = false
-    private var hostExitScheduled = false
 
     override init?(frame: NSRect, isPreview: Bool) {
         // legacyScreenSaver has shipped regressions where isPreview is wrong.
@@ -25,6 +30,8 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
         super.init(frame: frame, isPreview: isPreviewMode)
         configureInactiveAppearance()
         configureLifecycleObservers()
+        let build = Bundle(for: ZibreiroScreenSaverView.self).object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        Self.logger.notice("view init build=\(build, privacy: .public) pid=\(ProcessInfo.processInfo.processIdentifier) frame=\(Int(frame.width))x\(Int(frame.height)) hostPreviewArgument=\(isPreview) detectedPreview=\(self.isPreviewMode)")
     }
 
     required init?(coder: NSCoder) {
@@ -37,6 +44,7 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
     }
 
     deinit {
+        Self.logger.notice("view deinit preview=\(self.isPreviewMode)")
         for observer in lifecycleObservers {
             DistributedNotificationCenter.default().removeObserver(observer)
         }
@@ -55,12 +63,18 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
     }
 
     override func startAnimation() {
-        guard !hostIsStopping else { return }
+        guard !Self.processIsStopping else {
+            Self.logger.notice("startAnimation rejected because legacy host process is stopping")
+            return
+        }
         let isNewStart = !isAnimating
+        Self.logger.notice("startAnimation new=\(isNewStart) preview=\(self.isPreviewMode) frame=\(Int(self.frame.width))x\(Int(self.frame.height)) bounds=\(Int(self.bounds.width))x\(Int(self.bounds.height)) windowAttached=\(self.window != nil) hidden=\(self.isHiddenOrHasHiddenAncestor)")
         if isNewStart {
             super.startAnimation()
         }
         guard shouldKeepRenderer else {
+            Self.logger.error("startAnimation could not keep renderer windowAttached=\(self.window != nil) hidden=\(self.isHiddenOrHasHiddenAncestor) visibleRectEmpty=\(self.visibleRect.isEmpty)")
+            self.layer?.backgroundColor = NSColor.systemRed.cgColor
             releaseRenderer()
             return
         }
@@ -72,6 +86,7 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
     }
 
     override func stopAnimation() {
+        Self.logger.notice("stopAnimation preview=\(self.isPreviewMode) isAnimating=\(self.isAnimating)")
         if isAnimating {
             super.stopAnimation()
         }
@@ -80,6 +95,7 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
 
     override func viewDidHide() {
         super.viewDidHide()
+        Self.logger.notice("viewDidHide preview=\(self.isPreviewMode)")
         // System Settings does not reliably balance startAnimation() with
         // stopAnimation() when its preview is replaced or navigated away from.
         releaseRenderer()
@@ -87,11 +103,13 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
+        Self.logger.notice("viewDidUnhide preview=\(self.isPreviewMode) windowAttached=\(self.window != nil)")
         reconcileRendererWithVisibility()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        Self.logger.notice("viewDidMoveToWindow preview=\(self.isPreviewMode) attached=\(self.window != nil) hidden=\(self.isHiddenOrHasHiddenAncestor)")
         reconcileRendererWithVisibility()
     }
 
@@ -108,7 +126,7 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
     }
 
     private var shouldKeepRenderer: Bool {
-        guard !hostIsStopping, isAnimating, window != nil else {
+        guard !Self.processIsStopping, isAnimating, window != nil else {
             return false
         }
 
@@ -148,11 +166,12 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
 
     private func screenSaverHostWillStop() {
         guard !isPreviewMode else { return }
-        hostIsStopping = true
+        Self.logger.notice("received screen saver stop notification; releasing renderer and scheduling host exit")
+        Self.processIsStopping = true
         releaseRenderer()
 
-        guard !hostExitScheduled else { return }
-        hostExitScheduled = true
+        guard !Self.processExitScheduled else { return }
+        Self.processExitScheduled = true
 
         // The process is a dedicated legacyScreenSaver host. macOS 14+ may
         // leave it alive indefinitely with all old ScreenSaverViews retained.
@@ -166,9 +185,11 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
 
     private func configureRendererIfNeeded() {
         guard metalView == nil, shouldKeepRenderer else { return }
+        Self.logger.notice("configuring renderer preview=\(self.isPreviewMode) bounds=\(Int(self.bounds.width))x\(Int(self.bounds.height)) windowAttached=\(self.window != nil) hidden=\(self.isHiddenOrHasHiddenAncestor)")
 
         guard let device = MTLCreateSystemDefaultDevice() else {
-            layer?.backgroundColor = NSColor(red: 0.02, green: 0.05, blue: 0.03, alpha: 1).cgColor
+            Self.logger.error("MTLCreateSystemDefaultDevice returned nil")
+            layer?.backgroundColor = NSColor.systemRed.cgColor
             return
         }
 
@@ -199,11 +220,12 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
             view.delegate = renderer
             metalView = view
             self.renderer = renderer
+            Self.logger.notice("renderer attached preview=\(self.isPreviewMode) drawable=\(Int(view.drawableSize.width))x\(Int(view.drawableSize.height))")
         } catch {
             view.releaseDrawables()
             view.removeFromSuperview()
-            NSLog("Zibreiro screen saver could not create Metal renderer: %@", error.localizedDescription)
-            layer?.backgroundColor = NSColor(red: 0.02, green: 0.05, blue: 0.03, alpha: 1).cgColor
+            Self.logger.error("renderer creation failed error=\(error.localizedDescription, privacy: .public)")
+            layer?.backgroundColor = NSColor.magenta.cgColor
         }
     }
 
@@ -233,6 +255,9 @@ final class ZibreiroScreenSaverView: ScreenSaverView {
         // releasing its delegate lets the legacy host return both those pools
         // and Zibreiro's offscreen Metal texture while it remains idle.
         let releasedRenderer = renderer
+        if releasedRenderer != nil || metalView != nil {
+            Self.logger.notice("releasing renderer preview=\(self.isPreviewMode)")
+        }
         renderer = nil
         metalView?.delegate = nil
         metalView?.isPaused = true

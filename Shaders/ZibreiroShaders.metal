@@ -7,6 +7,7 @@ struct ZibreiroUniforms {
     float4 widthsAndTopHeight;
     float4 heightsAndMaterial;
     float4 surface;
+    float4 motion;
     float4 baseDark;
     float4 deepRed;
     float4 ember;

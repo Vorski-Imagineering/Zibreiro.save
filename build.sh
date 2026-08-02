@@ -11,6 +11,7 @@ BUILD_DIR="$ROOT_DIR/build"
 BUNDLE_DIR="$BUILD_DIR/Zibreiro.saver"
 METAL_AIR="$BUILD_DIR/ZibreiroShaders.air"
 METAL_LIBRARY="$BUILD_DIR/default.metallib"
+RENDER_VALIDATOR="$BUILD_DIR/validate-renderer"
 MODULE_CACHE_PATH="${ZIBREIRO_MODULE_CACHE_PATH:-/tmp/zibreiro-metal-module-cache}"
 
 mkdir -p "$BUILD_DIR"
@@ -53,6 +54,19 @@ cp "$ROOT_DIR/Resources/blue-noise-128.raw" "$BUNDLE_DIR/Contents/Resources/blue
 
 plutil -lint "$BUNDLE_DIR/Contents/Info.plist" >/dev/null
 codesign --force --deep --sign - "$BUNDLE_DIR" >/dev/null
+
+# Compilation alone does not prove the shader produces visible pixels. Render
+# the installed algorithm through a simulated 5K output and fail the build if
+# GPU execution fails or the sampled frame is black.
+swiftc \
+  -sdk "$SDK_PATH" \
+  -module-cache-path "$MODULE_CACHE_PATH" \
+  -target "${ARCH}-apple-macosx${DEPLOYMENT_TARGET}" \
+  "$ROOT_DIR/Tools/validate_renderer.swift" \
+  -o "$RENDER_VALIDATOR" \
+  -framework Foundation \
+  -framework Metal
+"$RENDER_VALIDATOR" "$BUNDLE_DIR"
 
 echo "Built $BUNDLE_DIR"
 echo "SDK: macOS $SDK_VERSION ($SDK_PATH)"

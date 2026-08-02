@@ -1,10 +1,42 @@
 import Foundation
 import Metal
 import MetalKit
+import OSLog
 import simd
 
 final class MetalRenderer: NSObject, MTKViewDelegate {
     private static let maximumPigmentDimension = 2560
+    private static let logger = Logger(subsystem: "com.example.Zibreiro", category: "metal")
+
+    // Names are the source of truth. The numeric value only crosses the
+    // Swift/Metal boundary in the fixed-layout uniform buffer.
+    private enum Scenario: CaseIterable {
+        case originalForms
+        case twoBands
+        case warmCoolHorizon
+        case stackedStrata
+        case smokyCircle
+
+        var slug: String {
+            switch self {
+            case .originalForms: return "original-forms"
+            case .twoBands: return "two-bands"
+            case .warmCoolHorizon: return "warm-cool-horizon"
+            case .stackedStrata: return "stacked-strata"
+            case .smokyCircle: return "smoky-circle"
+            }
+        }
+
+        var shaderValue: Float {
+            switch self {
+            case .originalForms: return 0
+            case .twoBands: return 1
+            case .warmCoolHorizon: return 2
+            case .stackedStrata: return 3
+            case .smokyCircle: return 4
+            }
+        }
+    }
 
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
@@ -16,18 +48,35 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
     private var drawableSize = MTLSize(width: 0, height: 0, depth: 1)
     private var startedAt = ProcessInfo.processInfo.systemUptime
     private var uniforms: ZibreiroUniforms
+    private var reportedMissingPigmentTexture = false
+    private var reportedMissingRenderPass = false
+    private var reportedMissingDrawable = false
+    private var reportedMissingCommandBuffer = false
+    private var submittedFrameCount: UInt64 = 0
+    private let completionLock = NSLock()
+    private var reportedFirstCompletion = false
 
     init(device: MTLDevice, bundle: Bundle) throws {
-        precondition(MemoryLayout<ZibreiroUniforms>.stride == 176, "Swift/Metal ZibreiroUniforms layout changed")
+        precondition(MemoryLayout<ZibreiroUniforms>.stride == 192, "Swift/Metal ZibreiroUniforms layout changed")
         self.device = device
+        let build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        Self.logger.notice("renderer init build=\(build, privacy: .public) device=\(device.name, privacy: .public) uniformStride=\(MemoryLayout<ZibreiroUniforms>.stride)")
         guard let libraryURL = bundle.url(forResource: "default", withExtension: "metallib") else {
+            Self.logger.error("default.metallib missing from bundle=\(bundle.bundlePath, privacy: .public)")
             throw RendererError.metalLibraryMissing
         }
-        let library = try device.makeLibrary(URL: libraryURL)
+        let library: MTLLibrary
+        do {
+            library = try device.makeLibrary(URL: libraryURL)
+        } catch {
+            Self.logger.error("could not load metallib url=\(libraryURL.path, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            throw error
+        }
         guard let commandQueue = device.makeCommandQueue(),
               let vertex = library.makeFunction(name: "fullscreenVertex"),
               let pigment = library.makeFunction(name: "pigmentFragment"),
               let output = library.makeFunction(name: "outputFragment") else {
+            Self.logger.error("Metal queue or required shader function is unavailable")
             throw RendererError.metalSetupFailed
         }
         self.commandQueue = commandQueue
@@ -49,6 +98,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         blueNoiseTexture = try Self.makeBlueNoiseTexture(device: device, bundle: bundle)
         uniforms = Self.makeComposition()
         super.init()
+        Self.logger.notice("renderer initialized successfully build=\(build, privacy: .public)")
     }
 
     func attach(to view: MTKView) {
@@ -58,6 +108,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
     func startNewComposition() {
         uniforms = Self.makeComposition()
         startedAt = ProcessInfo.processInfo.systemUptime
+        Self.logger.notice("new composition scenario=\(Int(self.uniforms.surface.z)) durationSeconds=\(abs(self.uniforms.surface.w)) curve=\(Int(self.uniforms.motion.x))")
     }
 
     func shutdown() {
@@ -68,6 +119,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         lastCommandBuffer = nil
         pigmentTexture = nil
         drawableSize = MTLSize(width: 0, height: 0, depth: 1)
+        Self.logger.notice("renderer shutdown submittedFrames=\(self.submittedFrameCount)")
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -83,11 +135,46 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         descriptor.usage = [.renderTarget, .shaderRead]
         descriptor.storageMode = .private
         pigmentTexture = device.makeTexture(descriptor: descriptor)
+        if pigmentTexture == nil {
+            Self.logger.error("failed to allocate pigment texture requested=\(requestedWidth)x\(requestedHeight) capped=\(width)x\(height)")
+        } else {
+            reportedMissingPigmentTexture = false
+            Self.logger.notice("drawable resized requested=\(requestedWidth)x\(requestedHeight) pigment=\(width)x\(height)")
+        }
     }
 
     func draw(in view: MTKView) {
-        guard let pigmentTexture, let renderPass = view.currentRenderPassDescriptor,
-              let drawable = view.currentDrawable, let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+        guard let pigmentTexture else {
+            if !reportedMissingPigmentTexture {
+                reportedMissingPigmentTexture = true
+                Self.logger.error("draw skipped: pigment texture unavailable viewDrawable=\(Int(view.drawableSize.width))x\(Int(view.drawableSize.height))")
+            }
+            return
+        }
+        guard let renderPass = view.currentRenderPassDescriptor else {
+            if !reportedMissingRenderPass {
+                reportedMissingRenderPass = true
+                Self.logger.error("draw skipped: currentRenderPassDescriptor unavailable windowAttached=\(view.window != nil)")
+            }
+            return
+        }
+        guard let drawable = view.currentDrawable else {
+            if !reportedMissingDrawable {
+                reportedMissingDrawable = true
+                Self.logger.error("draw skipped: currentDrawable unavailable windowAttached=\(view.window != nil) hidden=\(view.isHiddenOrHasHiddenAncestor)")
+            }
+            return
+        }
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            if !reportedMissingCommandBuffer {
+                reportedMissingCommandBuffer = true
+                Self.logger.error("draw skipped: command buffer unavailable")
+            }
+            return
+        }
+        reportedMissingRenderPass = false
+        reportedMissingDrawable = false
+        reportedMissingCommandBuffer = false
 
         let elapsed = Float(ProcessInfo.processInfo.systemUptime - startedAt)
         uniforms.resolutionAndTime = SIMD4(Float(drawableSize.width), Float(drawableSize.height), elapsed, 0)
@@ -96,26 +183,50 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         pigmentPass.colorAttachments[0].texture = pigmentTexture
         pigmentPass.colorAttachments[0].loadAction = .dontCare
         pigmentPass.colorAttachments[0].storeAction = .store
-        if let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pigmentPass) {
-            encoder.setRenderPipelineState(pigmentPipeline)
-            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<ZibreiroUniforms>.stride, index: 0)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-            encoder.endEncoding()
+        guard let pigmentEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: pigmentPass) else {
+            Self.logger.error("could not create pigment render encoder")
+            return
         }
+        pigmentEncoder.setRenderPipelineState(pigmentPipeline)
+        pigmentEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<ZibreiroUniforms>.stride, index: 0)
+        pigmentEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        pigmentEncoder.endEncoding()
 
-        if let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPass) {
-            encoder.setRenderPipelineState(outputPipeline)
-            // Algorithm 007 uses time to advance its centre-panel temporal
-            // dither. Earlier output shaders simply leave this buffer unused.
-            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<ZibreiroUniforms>.stride, index: 0)
-            encoder.setFragmentTexture(pigmentTexture, index: 0)
-            encoder.setFragmentTexture(blueNoiseTexture, index: 1)
-            encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-            encoder.endEncoding()
+        guard let outputEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPass) else {
+            Self.logger.error("could not create output render encoder")
+            return
+        }
+        outputEncoder.setRenderPipelineState(outputPipeline)
+        // Algorithm 007 uses time to advance its centre-panel temporal
+        // dither. Earlier output shaders simply leave this buffer unused.
+        outputEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<ZibreiroUniforms>.stride, index: 0)
+        outputEncoder.setFragmentTexture(pigmentTexture, index: 0)
+        outputEncoder.setFragmentTexture(blueNoiseTexture, index: 1)
+        outputEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        outputEncoder.endEncoding()
+        commandBuffer.label = "Zibreiro frame \(submittedFrameCount + 1)"
+        commandBuffer.addCompletedHandler { [weak self] completedBuffer in
+            self?.recordCompletion(completedBuffer, drawable: drawable)
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
+        submittedFrameCount += 1
+        if submittedFrameCount == 1 {
+            Self.logger.notice("first frame submitted drawable=\(Int(view.drawableSize.width))x\(Int(view.drawableSize.height)) pigment=\(self.drawableSize.width)x\(self.drawableSize.height) windowAttached=\(view.window != nil)")
+        }
         lastCommandBuffer = commandBuffer
+    }
+
+    private func recordCompletion(_ commandBuffer: MTLCommandBuffer, drawable: CAMetalDrawable) {
+        if commandBuffer.status == .error {
+            Self.logger.error("Metal command buffer failed status=\(commandBuffer.status.rawValue) error=\(commandBuffer.error?.localizedDescription ?? "unknown", privacy: .public)")
+            return
+        }
+        completionLock.lock()
+        defer { completionLock.unlock() }
+        guard !reportedFirstCompletion else { return }
+        reportedFirstCompletion = true
+        Self.logger.notice("first frame completed status=\(commandBuffer.status.rawValue) presentedTime=\(drawable.presentedTime)")
     }
 
     private static func makeComposition() -> ZibreiroUniforms {
@@ -142,10 +253,21 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         value.placement = SIMD4(random(0, 1000), random(0.68, 0.78), random(0.44, 0.56), random(0.20, 0.32))
         value.widthsAndTopHeight = SIMD4(random(0.35, 0.48), random(0.38, 0.50), random(0.36, 0.49), random(0.12, 0.19))
         value.heightsAndMaterial = SIMD4(random(0.10, 0.17), random(0.12, 0.19), random(0.075, 0.145), random(0.25, 1.0))
-        // Four compositions share the same palette generation and output pass:
-        // 0 original forms, 1 two bands, 2 horizon, 3 stacked strata.
-        let scenario = Float(Int.random(in: 0...3))
-        value.surface = SIMD4(random(0.15, 1.0), random(0.55, 1.0), scenario, 0)
+        // All named compositions share the same palette generation and output pass.
+        // The first four compositions get a fresh 10–200 minute vertical
+        // sweep; the circle instead gets a 5–30 minute, slow heartbeat cycle.
+        let scenario = Scenario.allCases.randomElement()!
+        let duration: Float
+        if scenario == .smokyCircle {
+            value.placement = SIMD4(random(0, 1000), random(0.38, 0.62), random(0.40, 0.60), random(0, 1))
+            duration = random(5 * 60, 30 * 60)
+        } else {
+            duration = random(10 * 60, 200 * 60) * (Bool.random() ? 1 : -1)
+        }
+        value.surface = SIMD4(random(0.15, 1.0), random(0.55, 1.0), scenario.shaderValue, duration)
+        // Each non-circle composition chooses an easing curve for its shared
+        // vertical sweep: smoothstep, sine, cubic, or quartic.
+        value.motion.x = Float(Int.random(in: 0...3))
         let colors = palette.map(color)
         value.baseDark = colors[0]
         value.deepRed = colors[1]
@@ -153,6 +275,15 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         value.ochre = colors[3]
         value.bruised = colors[4]
         value.smokeGold = colors[5]
+        if scenario == .smokyCircle {
+            let primaryChoices = [1, 2, 3, 5]
+            let primaryIndex = primaryChoices.randomElement()!
+            let accentIndex = primaryChoices.filter { $0 != primaryIndex }.randomElement()!
+            // The circle uses one clearly dominant pigment and one independently
+            // selected accent, while the remaining palette supplies its dark field.
+            value.ember = colors[primaryIndex]
+            value.smokeGold = colors[accentIndex]
+        }
         return value
     }
 
