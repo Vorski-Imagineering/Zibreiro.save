@@ -4,12 +4,15 @@ import MetalKit
 import simd
 
 final class MetalRenderer: NSObject, MTKViewDelegate {
+    private static let maximumPigmentDimension = 2560
+
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
     private let pigmentPipeline: MTLRenderPipelineState
     private let outputPipeline: MTLRenderPipelineState
     private let blueNoiseTexture: MTLTexture
     private var pigmentTexture: MTLTexture?
+    private var lastCommandBuffer: MTLCommandBuffer?
     private var drawableSize = MTLSize(width: 0, height: 0, depth: 1)
     private var startedAt = ProcessInfo.processInfo.systemUptime
     private var uniforms: ZibreiroUniforms
@@ -57,9 +60,23 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         startedAt = ProcessInfo.processInfo.systemUptime
     }
 
+    func shutdown() {
+        // A committed command buffer retains every texture it references until
+        // the GPU finishes. Drain the final frame before dropping our texture
+        // so teardown has deterministic ownership rather than eventual release.
+        lastCommandBuffer?.waitUntilCompleted()
+        lastCommandBuffer = nil
+        pigmentTexture = nil
+        drawableSize = MTLSize(width: 0, height: 0, depth: 1)
+    }
+
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        let width = max(1, Int(size.width))
-        let height = max(1, Int(size.height))
+        let requestedWidth = max(1, Int(size.width))
+        let requestedHeight = max(1, Int(size.height))
+        let longestSide = max(requestedWidth, requestedHeight)
+        let scale = min(1, Double(Self.maximumPigmentDimension) / Double(longestSide))
+        let width = max(1, Int(floor(Double(requestedWidth) * scale)))
+        let height = max(1, Int(floor(Double(requestedHeight) * scale)))
         guard width != drawableSize.width || height != drawableSize.height else { return }
         drawableSize = MTLSize(width: width, height: height, depth: 1)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba32Float, width: width, height: height, mipmapped: false)
@@ -88,6 +105,9 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
 
         if let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPass) {
             encoder.setRenderPipelineState(outputPipeline)
+            // Algorithm 007 uses time to advance its centre-panel temporal
+            // dither. Earlier output shaders simply leave this buffer unused.
+            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<ZibreiroUniforms>.stride, index: 0)
             encoder.setFragmentTexture(pigmentTexture, index: 0)
             encoder.setFragmentTexture(blueNoiseTexture, index: 1)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
@@ -95,6 +115,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         }
         commandBuffer.present(drawable)
         commandBuffer.commit()
+        lastCommandBuffer = commandBuffer
     }
 
     private static func makeComposition() -> ZibreiroUniforms {

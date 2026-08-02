@@ -26,7 +26,7 @@ vertex Raster fullscreenVertex(uint vertexID [[vertex_id]]) {
 }
 
 #ifndef ZIBREIRO_ALGORITHM_VERSION
-#define ZIBREIRO_ALGORITHM_VERSION 1
+#define ZIBREIRO_ALGORITHM_VERSION 6
 #endif
 
 #if ZIBREIRO_ALGORITHM_VERSION == 1
@@ -41,6 +41,8 @@ vertex Raster fullscreenVertex(uint vertexID [[vertex_id]]) {
 #include "Algorithms/005-four-code-blue-noise.metalinc"
 #elif ZIBREIRO_ALGORITHM_VERSION == 6
 #include "Algorithms/006-protected-black.metalinc"
+#elif ZIBREIRO_ALGORITHM_VERSION == 7
+#include "Algorithms/007-side-by-side-shadow-diagnostics.metalinc"
 #else
 #error Unsupported ZIBREIRO_ALGORITHM_VERSION
 #endif

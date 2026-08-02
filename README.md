@@ -105,9 +105,9 @@ The last command opens the preserved legacy WebGL source in the default browser.
 
 Open `ZibreiroScreenSaver.xcodeproj` in full Xcode when available and choose the `Zibreiro` target. Its product type is a bundle with `.saver` extension, and its resources and Info.plist are configured to match the command-line build.
 
-The Metal visualizer selects one of three palette families—umber/red, green, or bruised-magenta—then randomizes its band placement, proportions, edge softness, drift, grain, vignette, and individual color channels on every `startAnimation()` invocation, including reused Preview views. It has no external dependencies. `Resources/index.html` remains intentionally preserved as the legacy WebGL implementation, but it is not loaded by the saver.
+The Metal visualizer selects one of five palette families, then randomizes its band placement, proportions, edge softness, drift, grain, vignette, and individual color channels on every `startAnimation()` invocation, including reused Preview views. It has no external dependencies. `Resources/index.html` remains intentionally preserved as the legacy WebGL implementation, but it is not loaded by the saver.
 
-The saver creates its Metal view and renderer only while animation is active. `stopAnimation()` removes the Metal view and releases the renderer so inactive previews do not retain high-resolution drawable pools or pigment textures in the system screen-saver host.
+The saver creates its Metal view and renderer only while `ScreenSaverView` reports active animation. `stopAnimation()` removes the Metal view and drains the last GPU command. Drawables are limited to two buffers and 2,560 pixels on their longest side (1,024 in Settings previews). On macOS 14 and later, where the Wallpaper `legacyScreenSaver` host can retain old views without ever calling `stopAnimation()`, the saver also handles the system `willstop` lifecycle notification and terminates that dedicated host after its exit transition. This is the same host-lifecycle workaround used by Aerial and the AerialScreensaver ScreenSaverMinimal reference implementation; normal `NSWindow` visibility and occlusion are deliberately not used because the Wallpaper bridge does not report them reliably during saver startup.
 
 ## Algorithm versions
 

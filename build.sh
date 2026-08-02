@@ -17,7 +17,7 @@ mkdir -p "$BUILD_DIR"
 mkdir -p "$MODULE_CACHE_PATH"
 
 case "$ALGORITHM_VERSION" in
-  1|2|3|4|5|6) ;;
+  1|2|3|4|5|6|7) ;;
   *) echo "Unsupported ZIBREIRO_ALGORITHM_VERSION: $ALGORITHM_VERSION" >&2; exit 2 ;;
 esac
 

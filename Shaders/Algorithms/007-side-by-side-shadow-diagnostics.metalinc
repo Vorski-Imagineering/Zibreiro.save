@@ -1,0 +1,81 @@
+// Algorithm 007
+// A diagnostic triptych that repeats the same pigment field in three columns:
+//   left   — Algorithm 006's protected-black, static four-code blue noise;
+//   centre — protected black with temporally shifted four-code blue noise;
+//   right  — a gently expanded shadow toe with one-code static blue noise.
+//
+// Keep Algorithm 006 genuinely immutable by importing it under a different
+// output-function name. Its pigment pass and all composition scenarios remain
+// the common source for the three output experiments below.
+
+#define outputFragment algorithm006OutputFragment
+#include "006-protected-black.metalinc"
+#undef outputFragment
+
+float3 mapProtectedBlack(float3 color) {
+    constexpr float3 luminanceWeights = float3(0.2126, 0.7152, 0.0722);
+    constexpr float blackPoint = 6.0 / 255.0;
+    float luminance = dot(color, luminanceWeights);
+    float mappedLuminance = max((luminance - blackPoint) / (1.0 - blackPoint), 0.0);
+    return color * (luminance > 0.0 ? mappedLuminance / luminance : 0.0);
+}
+
+float3 mapExpandedShadows(float3 color) {
+    constexpr float3 luminanceWeights = float3(0.2126, 0.7152, 0.0722);
+    float luminance = dot(color, luminanceWeights);
+
+    // Preserve true black and the original hue, but allocate more display
+    // range to the lower part of the wash. The blend fades away through the
+    // midtones so this is a shadow-allocation test, not a new grade.
+    float expanded = pow(max(luminance, 0.0), 0.82);
+    float shadowWeight = (1.0 - smoothstep(0.0, 0.30, luminance)) * 0.35;
+    float mappedLuminance = mix(luminance, expanded, shadowWeight);
+    return color * (luminance > 0.0 ? mappedLuminance / luminance : 0.0);
+}
+
+fragment float4 outputFragment(
+    Raster in [[stage_in]],
+    constant ZibreiroUniforms& u [[buffer(0)]],
+    texture2d<float> pigmentTexture [[texture(0)]],
+    texture2d<float> blueNoiseTexture [[texture(1)]]) {
+    uint2 pixel = uint2(in.position.xy);
+    uint width = max(uint(u.resolutionAndTime.x), 3u);
+    uint panelWidth = max(width / 3u, 1u);
+    uint panel = min(pixel.x / panelWidth, 2u);
+    uint localX = pixel.x - panel * panelWidth;
+
+    // Repeat the complete source field rather than showing three adjacent
+    // crops. Each panel therefore receives the same pigment values.
+    uint sourceX = min(uint((float(localX) + 0.5) * float(width) / float(panelWidth)), width - 1u);
+    float3 color = pigmentTexture.read(uint2(sourceX, pixel.y)).rgb;
+    uint2 noisePixel = uint2(localX & 127u, pixel.y & 127u);
+
+    if (panel == 0u) {
+        color = mapProtectedBlack(color);
+        float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
+        float dither = blueNoiseTexture.read(noisePixel).r - 0.5;
+        color += dither * (4.0 / 255.0) * smoothstep(0.0, 16.0 / 255.0, luminance);
+    } else if (panel == 1u) {
+        color = mapProtectedBlack(color);
+
+        // A different toroidal offset on every displayed frame preserves the
+        // blue-noise spectrum without locking it to the monitor's pixel/FRC
+        // pattern. The pigment animation itself is still unchanged.
+        uint frame = uint(floor(u.resolutionAndTime.z * 30.0));
+        uint2 temporalOffset = uint2(frame * 37u, frame * 61u) & 127u;
+        float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
+        float dither = blueNoiseTexture.read((noisePixel + temporalOffset) & 127u).r - 0.5;
+        color += dither * (4.0 / 255.0) * smoothstep(0.0, 16.0 / 255.0, luminance);
+    } else {
+        color = mapExpandedShadows(color);
+        float dither = blueNoiseTexture.read(noisePixel).r - 0.5;
+        color += dither / 255.0;
+    }
+
+    // Neutral separators make the experiment boundaries obvious without
+    // requiring text rendering in the screen saver.
+    if (localX < 2u && panel > 0u) {
+        color = float3(0.32);
+    }
+    return float4(clamp(color, 0.0, 1.0), 1.0);
+}
