@@ -108,3 +108,29 @@ ZIBREIRO_ALGORITHM_VERSION=1 ./build.sh
 ```
 
 The selected version is written to `ZibreiroAlgorithmVersion` in the built bundle's Info.plist. See `Shaders/Algorithms/README.md` for version notes and comparison findings.
+
+## Bugs and Quandries
+
+The main open visual problem is pronounced banding in the darkest, smoothest pigment fields. On the physical displays it can present as vertical strips rather than only as the broad contour bands normally associated with 8-bit gradients. This is most noticeable in deep greens and near-black fields, and it can vary by display.
+
+### What we have tried
+
+- Moved from the legacy WebGL/WKWebView renderer to native Metal, driven directly by the Screen Saver timer.
+- Confirmed rendering uses the display's native backing resolution rather than logical point resolution.
+- Kept the pigment calculation in a 32-bit floating-point texture and the drawable in sRGB-tagged 16-bit floating point, so the shader itself is not quantizing each intermediate operation to 8 bits.
+- Added painterly grain and output-code-space dithering to decorrelate the final display quantization.
+- Replaced an early large-coordinate hash dither, which could itself form structured stripes, with precision-safe interleaved-gradient noise and then texture-backed blue noise.
+- Compared several algorithm versions: widening shadow range, increasing dither amplitude, changing pigment mixing, and protecting exact black. The four-code procedural dither was rejected because it made bands more obvious on one display, likely through interaction with panel temporal dithering/FRC.
+
+### What we suspect
+
+The remaining banding is probably not a single bug. The strongest candidates are:
+
+- The shader's very compressed dark range: squared pigment colors and strong vignetting can leave only a small number of distinguishable display luminance levels in the darkest fields.
+- The final conversion from the float render path to the physical display's 8- or 10-bit panel output.
+- Display-specific FRC, temporal dithering, colour management, or cable/monitor processing interacting with our stable dither pattern.
+- A residual interaction between the dither pattern, the display pixel grid, and the deliberately broad vertical colour gradients.
+
+We do not yet know how much is intrinsic to a given monitor versus the screen saver, Metal drawable configuration, or shader. The algorithm captures and notes under `Shaders/Algorithms/` are intended to keep each experiment comparable rather than treating a subjective improvement on one display as a universal fix.
+
+Ideas, references, test captures, and alternative hypotheses are very welcome. Useful contributions would include a reproducible test, a different dither strategy, an output-transform proposal, or an explanation of why a particular panel/FRC path would create vertical strips. Please add new experiments as a numbered shader algorithm so the current baseline remains reproducible.
