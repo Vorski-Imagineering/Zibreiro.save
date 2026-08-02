@@ -6,17 +6,27 @@ Looking forward to pull requests with suggested improvements.
 
 ## Make it your own with Claude or Codex
 
-You do not need to be an experienced programmer to experiment with Zibreiro. Pull the repository, open a terminal in its folder, and start Claude Code or Codex:
+You do not need to be an experienced programmer or use the command line to experiment with Zibreiro. First install full Xcode from Apple's Mac App Store. Then open the Claude or Codex desktop app and paste in this repository URL:
 
-```sh
-git clone https://github.com/Vorski-Imagineering/Zibreiro.save.git
-cd Zibreiro.save
-claude
-# Or use Codex:
-codex
+```text
+https://github.com/Vorski-Imagineering/Zibreiro.save
 ```
 
-Then describe the change you want in plain language. For example:
+Then tell the agent:
+
+```text
+Pull this repo.
+```
+
+Once it has finished, tell it:
+
+```text
+Build it.
+```
+
+The agent can handle the setup and build steps. When it finishes, install the resulting `build/Zibreiro.saver` and try it in **System Settings → Wallpaper → Screen Saver**.
+
+To make changes, describe what you want in plain language. For example:
 
 - “Make the colour transitions slower and more subtle.”
 - “Add a new palette based on deep blues and warm golds.”
