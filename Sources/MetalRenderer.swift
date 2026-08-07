@@ -259,7 +259,9 @@ final class MetalRenderer: NSObject, MTKViewDelegate {
         let scenario = Scenario.allCases.randomElement()!
         let duration: Float
         if scenario == .smokyCircle {
-            value.placement = SIMD4(random(0, 1000), random(0.38, 0.62), random(0.40, 0.60), random(0, 1))
+            // Keep the complete soft sphere on-screen; color and material,
+            // rather than placement, provide its per-run variation.
+            value.placement = SIMD4(random(0, 1000), 0.5, 0.5, random(0, 1))
             duration = random(5 * 60, 30 * 60)
         } else {
             duration = random(10 * 60, 200 * 60) * (Bool.random() ? 1 : -1)

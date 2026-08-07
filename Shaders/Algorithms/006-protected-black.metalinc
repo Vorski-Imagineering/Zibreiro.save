@@ -50,6 +50,9 @@ fragment float4 pigmentFragment(Raster in [[stage_in]], constant ZibreiroUniform
     float2 uv = in.uv;
     float2 p = uv; float aspect = u.resolutionAndTime.x / u.resolutionAndTime.y;
     p.x = (p.x - 0.5) * aspect + 0.5;
+    // The circle silhouette stays in this stable coordinate space; global
+    // paint drift may texture it, but must not push its whole form off-screen.
+    float2 circlePosition = p;
     float time = u.resolutionAndTime.z, seed = u.placement.x, driftAmount = u.heightsAndMaterial.w;
     float t = time * (0.012 + driftAmount * 0.018), breath = 0.5 + 0.5 * sin(time * 0.18);
     float2 drift = float2(fbm(p * (1.4 + driftAmount * 0.8) + float2(t + seed, -t * 0.7)), fbm(p * (1.6 + driftAmount * 0.9) + float2(-t * 0.8, t * 0.6 + seed)));
@@ -89,35 +92,39 @@ fragment float4 pigmentFragment(Raster in [[stage_in]], constant ZibreiroUniform
             float pulsePhase = time * (6.28318530718 / pulseDuration) + seed * 0.017;
             float heartbeat = 0.5 - 0.5 * cos(pulsePhase);
             heartbeat = heartbeat * heartbeat * (3.0 - 2.0 * heartbeat);
-            float radius = 0.275 + u.widthsAndTopHeight.x * 0.32;
+            // Twenty percent smaller than the original circle, leaving room
+            // for the fluttering, deliberately wide outer fade.
+            float radius = (0.275 + u.widthsAndTopHeight.x * 0.32) * 0.80;
             radius *= 0.91 + heartbeat * 0.18;
             float2 centre = float2((u.placement.y - 0.5) * aspect + 0.5, u.placement.z);
-            float2 q = p - centre;
+            float2 q = circlePosition - centre;
             float distanceFromCentre = length(q);
             float angle = atan2(q.y, q.x);
             // The outer boundary has its own, comparatively lively flow. It
             // deliberately does not share the smoke field or timing below.
-            float edgeTime = time * (0.037 + driftAmount * 0.031);
-            float edgeFlutter = (fbm(q * 9.0 + float2(seed * 0.21, edgeTime)) - 0.5) * 0.100
+            float edgeTime = time * (0.145 + driftAmount * 0.075);
+            float2 edgeFlow = float2(cos(edgeTime * 0.83 + seed), sin(edgeTime * 1.21 - seed)) * 1.7;
+            float edgeFlutter = (fbm(q * 9.0 + edgeFlow) - 0.5) * 0.100
                 + sin(angle * 7.0 + edgeTime * 1.8 + seed) * 0.022
                 + sin(angle * 3.0 - edgeTime * 1.1 - seed * 0.4) * 0.013;
             float softRadius = radius + edgeFlutter;
-            float outerCloud = 1.0 - smoothstep(softRadius - 0.070, softRadius + 0.145, distanceFromCentre);
+            float outerCloud = 1.0 - smoothstep(softRadius - 0.075, softRadius + 0.105, distanceFromCentre);
 
-            // The inside is a separate, slower flow. Avoid using the raw polar
+            // The inside is a separate, visibly moving flow. Avoid using the raw polar
             // angle as a rotation amount: atan2 jumps at its seam and formerly
             // made a visible line across the cloud. Integer angular waves wrap
             // continuously around that seam.
             float normalizedRadius = distanceFromCentre / max(radius, 0.001);
-            float smokeTime = time * (0.0045 + driftAmount * 0.0065);
+            float smokeTime = time * (0.045 + driftAmount * 0.025);
+            float2 smokeFlow = float2(cos(smokeTime * 0.71 + seed * 0.2), sin(smokeTime * 1.13 - seed * 0.3));
             float spiralWave = sin(angle * 3.0 - normalizedRadius * 8.0 - smokeTime * 1.7)
                 + sin(angle * 5.0 + normalizedRadius * 4.0 + smokeTime * 1.1) * 0.42;
             float swirl = normalizedRadius * 3.2 + spiralWave * 0.62
-                + (fbm(q * 3.2 + float2(smokeTime, seed)) - 0.5) * 1.1;
+                + (fbm(q * 3.2 + smokeFlow * 1.35) - 0.5) * 1.1;
             float2 curlA = rotate(q, swirl) * 4.2;
             float2 curlB = rotate(q, -swirl * 0.66 + 1.4) * 7.0;
-            float smokeA = fbm(curlA + float2(seed * 0.02, smokeTime * 0.55));
-            float smokeB = fbm(curlB + float2(-smokeTime * 0.42, seed * 0.03));
+            float smokeA = fbm(curlA + smokeFlow * 0.75 + float2(seed * 0.02, 0));
+            float smokeB = fbm(curlB - smokeFlow * 0.58 + float2(0, seed * 0.03));
             float smoke = clamp(smokeA * 0.62 + smokeB * 0.38, 0.0, 1.0);
             float curlingAccent = smoothstep(0.46, 0.76, smoke + spiralWave * 0.12);
             float interior = 1.0 - smoothstep(0.50, 1.16, normalizedRadius);
